@@ -345,9 +345,8 @@ Tu misión: Decidir el agente adecuado y crear una instrucción directa que el a
 load_dotenv()
 
 #Función para obtener variables de entorno con prioridad a Streamlit secrets
-def get_env_var(var_name: str, default=None):
-    """Obtiene variable de entorno con prioridad: Streamlit secrets > .env > default"""
-    if hasattr(st, 'secrets') and var_name in st.secrets:
+def get_env_var(var_name, default=None):
+    if hasattr(st, "secrets") and var_name in st.secrets:
         return st.secrets[var_name]
     return os.getenv(var_name, default)
 
@@ -473,7 +472,7 @@ def get_calendar_service():
                             flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
                         
                         # Para Streamlit Cloud, usar el flujo con autorización en la nube
-                        creds = flow.run_local_server(port=0)
+                        creds = flow.run_console()
                         
                     except Exception as e:
                         _calendar_service_error = f"Error en la autenticación de Google Calendar: {e}"
