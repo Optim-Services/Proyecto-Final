@@ -1498,7 +1498,7 @@ def voice_router_after(callback_context, llm_response):
         print(f"DEBUG VOICE ROUTER - Raw response: {raw}")
         # Ocultar JSON de routing
         if raw and raw.strip().startswith("{") and (
-            "target_agent" in raw or "cleaned_query" in raw or "rationale" in raw
+           "target_agent" in raw or "cleaned_query" in raw or "voice_extraction" in raw
         ):
             print("DEBUG VOICE ROUTER - Ocultando JSON de routing")
             return None
@@ -1603,8 +1603,14 @@ def master_after(callback_context, llm_response):
                 if any(keyword in raw.lower() for keyword in ['agenda', 'reunión', 'fecha', 'hora', 'calendario']):
                     target = "CalendarAgent"
                     response_text = " Procesando solicitud de agenda..."
-                elif any(keyword in raw.lower() for keyword in ['producto', 'servicio', 'venta', 'inversión']):
-                    target = "ProductAdvisorAgent"
+                elif any(keyword in raw.lower() for keyword in [
+                         'producto', 'productos', 'catálogo', 'catalogo',
+                         'compra', 'compras', 'venta', 'ventas',
+                         'inversión', 'inversion', 'lista de productos',
+                         'qué productos tengo', 'que productos tengo',
+                         'mis productos', 'historial de compras'
+                     ]):
+                         target = "ProductAdvisorAgent"
                     response_text = " Analizando información de productos..."
                 else:
                     target = "ConversationAgent"
