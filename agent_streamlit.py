@@ -471,8 +471,32 @@ def get_calendar_service():
                             # Flujo para credenciales locales (Installed App)
                             flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
                         
-                        # Para Streamlit Cloud, usar el flujo con autorización en la nube
-                        creds = flow.run_console()
+                        # Flujo OAuth en Streamlit Cloud (autorización por URL)
+                        auth_url, _ = flow.authorization_url(prompt='consent')
+                        
+                        st.warning("🔐 Google Calendar requiere autorización.")
+                        st.markdown(f"[Haz clic aquí para autorizar la aplicación en Google Calendar]({auth_url})")
+                        
+                        auth_code = st.text_input("Pega aquí el código que Google te dio:")
+                        
+                        # Si el usuario ya pegó el código, obtener token
+                        if auth_code:
+                            try:
+                                creds = flow.fetch_token(code=auth_code)
+                        
+                                # Guardar token para futuros usos
+                                with open("token.json", "w") as token_file:
+                                    token_file.write(creds.to_json())
+                        
+                                st.success("✅ ¡Google Calendar ha sido autenticado exitosamente! Reinicia la app para continuar.")
+                                st.stop()
+                        
+                            except Exception as e:
+                                st.error(f"❌ Error al procesar el código de autorización: {e}")
+                                st.stop()
+                        
+                        # Si no hay código todavía → detener la ejecución hasta que el usuario lo ingrese
+                        st.stop()
                         
                     except Exception as e:
                         _calendar_service_error = f"Error en la autenticación de Google Calendar: {e}"
