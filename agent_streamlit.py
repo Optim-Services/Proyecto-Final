@@ -523,11 +523,9 @@ def sb_get_or_create_client_id(
     person_name: Optional[str] = None,
     create_if_missing: bool = True,
 ) -> Optional[int]:
-      """
-    Busca un client_id en la tabla `clients` a partir de company_name/person_name.
-    - Primero intenta coincidencia ilike por company_name (+ person_name si viene).
-    - Si no encuentra y create_if_missing=True, inserta un nuevo registro.
-    - Devuelve el id o None si no se puede determinar.
+    """
+    Busca o crea un registro de cliente en la tabla `clients` de Supabase
+    basándose en el nombre de la empresa y/o persona.
     """
     if not company_name:
         return None
