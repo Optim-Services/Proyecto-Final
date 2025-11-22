@@ -9,6 +9,7 @@ import assemblyai as aa
 import aiohttp
 import atexit
 import pytz
+import socket
 
 # Google & Supabase API Clients
 from supabase import create_client, Client
@@ -522,9 +523,11 @@ def sb_get_or_create_client_id(
     person_name: Optional[str] = None,
     create_if_missing: bool = True,
 ) -> Optional[int]:
-    """
-    Busca o crea un registro de cliente en la tabla `clients` de Supabase
-    basándose en el nombre de la empresa y/o persona.
+      """
+    Busca un client_id en la tabla `clients` a partir de company_name/person_name.
+    - Primero intenta coincidencia ilike por company_name (+ person_name si viene).
+    - Si no encuentra y create_if_missing=True, inserta un nuevo registro.
+    - Devuelve el id o None si no se puede determinar.
     """
     if not company_name:
         return None
@@ -621,8 +624,9 @@ def calendar_before_model_callback(
     llm_request: LlmRequest,
 ) -> Optional[LlmResponse]:
     """
-    1. Ejecuta el guardrail de seguridad.
-    2. Guarda el mensaje de usuario REAL en el estado para usarlo en el after_callback.
+    - Ejecuta primero el guardrail global (guardian.before_model_callback).
+    - Guarda el último mensaje de usuario REAL (no los 'For context:' de MasterRouter)
+      en callback_context.state["last_user_text"].
     """
     # 1. Ejecutar Guardrail
     if guardian.before_model_callback is not None:
@@ -888,7 +892,6 @@ class VoiceRoutingDecision(BaseModel):
 # --- Google Calendar Functions ---
 
 def gc_create_event(
-    # ... [Argumentos originales] ...
     summary: str, start_iso: str, end_iso: str, description: Optional[str] = None,
     location: Optional[str] = None, attendees: Optional[List[str]] = None,
     calendar_id: str = "primary", timezone: str = "America/Mexico_City"
@@ -1012,8 +1015,6 @@ def sb_list_events(filters: Dict[str, Any]) -> Dict[str, Any]:
     client = get_supabase_client()
     query = client.table("calendar_events").select("*")
 
-    # Aplicar filtros (event_id, time_min, time_max, summary, company, client_id)
-    # ... [Lógica de filtros original] ...
     if (event_id := filters.get("event_id")):
         query = query.eq("event_id", event_id)
 
@@ -1043,11 +1044,16 @@ def sb_list_events(filters: Dict[str, Any]) -> Dict[str, Any]:
 # --- Supabase: PRODUCTOS / ANALISIS FINANCIERO (Tablas: products, client_products) ---
 
 def sb_list_products(filters: Dict[str, Any]) -> Dict[str, Any]:
-    """Lista productos del catálogo con filtros opcionales."""
+    """
+    Lista productos del catálogo con filtros opcionales:
+      - category
+      - min_price
+      - max_price
+      - only_active (bool)
+    """
     client = get_supabase_client()
     query = client.table("products").select("*")
 
-    # ... [Lógica de filtros original] ...
     if (category := filters.get("category")):
         query = query.ilike("category", f"%{category}%")
 
@@ -1070,7 +1076,17 @@ def sb_upsert_product(product: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": "ok", "detail": resp.data}
 
 def sb_list_client_products(filters: Dict[str, Any]) -> Dict[str, Any]:
-    """Lista compras de productos por cliente con filtros."""
+    """
+    Lista compras de productos por cliente.
+    Filtros posibles:
+      - client_id
+      - company_name (ilike)
+      - person_name (ilike)
+      - product_code
+      - date_min (YYYY-MM-DD)
+      - date_max (YYYY-MM-DD)
+    """
+    clien
     client = get_supabase_client()
     query = client.table("client_products").select("*")
     # ... [Lógica de filtros original] ...
@@ -1096,7 +1112,22 @@ def sb_list_client_products(filters: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": "ok", "detail": resp.data}
 
 def sb_add_client_product(record: Dict[str, Any]) -> Dict[str, Any]:
-    """Agrega una nueva compra para un cliente, resolviendo/creando `client_id` si es necesario."""
+    """
+    Agrega una nueva compra para un cliente.
+    Campos esperados normalmente desde el agente:
+      - company_name (str)
+      - person_name (str, opcional)
+      - product_code (str)
+      - purchase_date (YYYY-MM-DD)
+      - units (int)
+      - unit_price (float)
+      - discount_pct (float, opcional)
+      - notes (str, opcional)
+
+    Internamente:
+      - Resuelve/crea client_id si no viene.
+      - Si solo viene client_id y no company_name, lo rellena desde clients.
+    """
     client = get_supabase_client()
     record = dict(record)
 
@@ -1122,7 +1153,10 @@ def sb_add_client_product(record: Dict[str, Any]) -> Dict[str, Any]:
     return {"status": "ok", "detail": resp.data}
 
 def sb_update_client_product(record_id: int, updates: Dict[str, Any]) -> Dict[str, Any]:
-    """Actualiza una compra existente identificada por `id`."""
+    """
+    Actualiza una compra existente identificada por `id`.
+    También actualiza client_id si cambian company_name/person_name.
+    """
     client = get_supabase_client()
     # Lógica para refrescar client_id si se actualiza company/person
     company_name = updates.get("company_name")
@@ -1150,8 +1184,9 @@ def sb_delete_client_product(record_id: int) -> Dict[str, Any]:
 
 def sync_event_creation(event_data: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Crea el evento en Google Calendar y lo guarda en Supabase.
-    Genera un ID local si GC no está disponible (status: 'supabase_only').
+    Crea el evento en Google Calendar y lo guarda en Supabase,
+    ligándolo automáticamente al client_id correspondiente.
+    Si Google Calendar no está disponible, guarda solo en Supabase.
     """
     service = get_calendar_service()
     gc_event_id = None
@@ -1176,7 +1211,7 @@ def sync_event_creation(event_data: Dict[str, Any]) -> Dict[str, Any]:
             if event_data.get("description"):
                 gc_body["description"] = event_data["description"]
 
-            import socket
+            
             socket.setdefaulttimeout(10) # 10 segundos timeout
             
             created_gc = service.events().insert(
@@ -1429,10 +1464,19 @@ product_agent = LlmAgent(
 
 # --- 7.4. Agente extractor de voz (Structured Output) ---
 def voice_extractor_after(callback_context, llm_response):
-    """Callback para ocultar el JSON de extracción de la respuesta final."""
-    # ... [Lógica de ocultamiento de JSON original] ...
-    # Se ignora la respuesta final del LLM, ya que el SequentialAgent usará el output_key.
-    return None
+    """Oculta JSON del VoiceExtractorAgent"""
+    print(f"DEBUG VOICE EXTRACTOR - Callback called with response: {llm_response}")
+    if llm_response.content and llm_response.content.parts:
+        raw = llm_response.content.parts[0].text
+        print(f"DEBUG VOICE EXTRACTOR - Raw response: {raw}")
+        # Ocultar JSON de extracción
+        if raw and raw.strip().startswith("{") and (
+            "date" in raw or "person_name" in raw or "company_name" in raw or 
+            "is_meeting" in raw or "is_simple_instruction" in raw or "summary" in raw
+        ):
+            print("DEBUG VOICE EXTRACTOR - Ocultando JSON de extracción")
+            return None
+    return llm_response
 
 voice_extractor_agent = LlmAgent(
     name="VoiceExtractorAgent",
@@ -1448,10 +1492,19 @@ voice_extractor_agent = LlmAgent(
 
 # --- 7.5. Agente de ruteo después de la extracción de voz (Structured Output) ---
 def voice_router_after(callback_context, llm_response):
-    """Callback para ocultar el JSON de ruteo de la respuesta final."""
-    # ... [Lógica de ocultamiento de JSON original] ...
-    # Se ignora la respuesta final del LLM, ya que el SequentialAgent usará el output_key.
-    return None
+    """Oculta JSON del VoiceRouterAgent"""
+    print(f"DEBUG VOICE ROUTER - Callback called with response: {llm_response}")
+    print(f"DEBUG VOICE ROUTER - Estado actual: {callback_context.state}")
+    if llm_response.content and llm_response.content.parts:
+        raw = llm_response.content.parts[0].text
+        print(f"DEBUG VOICE ROUTER - Raw response: {raw}")
+        # Ocultar JSON de routing
+        if raw and raw.strip().startswith("{") and (
+            "target_agent" in raw or "cleaned_query" in raw or "rationale" in raw
+        ):
+            print("DEBUG VOICE ROUTER - Ocultando JSON de routing")
+            return None
+    return llm_response
 
 voice_router_agent = LlmAgent(
     name="VoiceRouterAgent",
@@ -1543,7 +1596,6 @@ def master_after(callback_context, llm_response):
             
             # Si es una transcripción de voz, el MasterRouter ya la procesó
             if "TRANSCRIPCIÓN DE NOTA DE VOZ:" in raw:
-                # ... [Lógica de transferencia original] ...
                 lines = raw.split('\n')
                 
                 # Buscar menciones de diarización o reuniones
