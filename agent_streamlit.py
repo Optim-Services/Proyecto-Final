@@ -2304,7 +2304,11 @@ def main():
                         final_text = extract_clean_text(result)
                     
                         if not final_text:
-                            # CORRECCIÓN: Se evita referenciar 'e' aquí, eliminando el error de asignación previa.
+                            # ⚠️ LÍNEA DE DEBUG TEMPORAL ⚠️
+                            debug_info = f"DEBUG INFO: El objeto de respuesta completo fue: {result}"
+                            # st.code es mejor para ver estructuras de datos complejas
+                            message_placeholder.code(debug_info) 
+                            # ⚠️ FIN DEBUG ⚠️
                             final_text = "❌ No pude generar una respuesta. El agente no retornó texto."
                     
                         message_placeholder.markdown(final_text)
