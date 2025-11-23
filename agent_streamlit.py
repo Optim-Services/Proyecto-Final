@@ -2131,7 +2131,7 @@ def main():
                         message_placeholder.markdown(final_text)
                         full_response = final_text
                      
-                     except Exception as e:
+                    except Exception as e:
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
                         message_placeholder.markdown(error_msg)
                         full_response = error_msg
