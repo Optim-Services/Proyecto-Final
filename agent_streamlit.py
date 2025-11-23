@@ -387,6 +387,7 @@ def format_datetime(dt_str: Optional[str]) -> str:
 # --- Supabase Client Singleton ---
 _supabase_client: Optional[Client] = None
 
+@st.cache_resource
 def get_supabase_client() -> Client:
     """Obtiene o crea el cliente singleton de Supabase."""
     global _supabase_client
@@ -400,6 +401,7 @@ def get_supabase_client() -> Client:
 _calendar_service: Optional[Any] = None
 _calendar_service_error: Optional[str] = None
 
+@st.cache_resource
 def get_calendar_service():
     """
     Obtiene o crea el cliente singleton de Google Calendar.
@@ -494,13 +496,16 @@ def get_calendar_service():
                                     token_file.write(creds.to_json())
 
                                 st.success("✅ ¡Google Calendar ha sido autenticado exitosamente! Vuelve a ejecutar la acción.")
-                                st.stop()
+                                st.session_state["awaiting_auth"] = True
+                                st.experimental_rerun()
                             except Exception as e:
                                 st.error(f"❌ Error al procesar el código de autorización: {e}")
-                                st.stop()
+                                st.session_state["awaiting_auth"] = True
+                                 st.experimental_rerun()
 
                         # Si aún no hay código, detener la app hasta que el usuario lo ingrese
-                        st.stop()
+                        st.session_state["awaiting_auth"] = True
+                        st.experimental_rerun()
 
                     except Exception as e:
                         _calendar_service_error = f"Error en la autenticación de Google Calendar: {e}"
@@ -966,6 +971,14 @@ def gc_delete_event(event_id: str, calendar_id: str = "primary") -> Dict[str, An
         socket.setdefaulttimeout(None)
 
 # --- Supabase: EVENTOS ---
+
+@st.cache_data(ttl=30)
+def cached_list_events():
+    client = get_supabase_client()
+    resp = client.table("calendar_events").select("*").execute()
+    return resp.data or []
+
+
 def sb_upsert_event(event_payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Inserta/actualiza un evento en calendar_events.
@@ -1038,8 +1051,7 @@ def sb_list_events(filters: Dict[str, Any]) -> Dict[str, Any]:
         print("[sb_list_events] Aplicando filtro client_id:", client_id)
         query = query.eq("client_id", client_id)
 
-    resp = query.execute()
-    rows = resp.data or []
+    rows = cached_list_events()
     print(f"[sb_list_events] Filas devueltas: {len(rows)}")
 
     return {"status": "ok", "detail": rows}
@@ -1286,8 +1298,7 @@ def sync_existing_supabase_events_to_google():
     if service is None:
         return {"error": "Google Calendar no está disponible para sincronización", "status": "failed"}
 
-    resp = client.table("calendar_events").select("*").execute()
-    rows = resp.data or []
+    rows = cached_list_events()
     results = []
     synced_count = 0
 
@@ -1828,7 +1839,12 @@ SESSION_ID = "default_session"
 session_service = InMemorySessionService()
 # Create session synchronously
 asyncio.run(session_service.create_session(app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID))
-runner = Runner(agent=root_agent, app_name=APP_NAME, session_service=session_service)
+#runner = Runner(agent=root_agent, app_name=APP_NAME, session_service=session_service)
+@st.cache_resource
+def get_runner():
+    return Runner(agent=root_agent, app_name=APP_NAME, session_service=session_service)
+
+runner = get_runner()
 
 def is_suspicious_prompt(text: str) -> bool:
     """Usa el guardián para detectar prompts peligrosos o de extracción de secretos."""
@@ -1935,7 +1951,12 @@ def run_root_agent_with_history_stream(messages: List[Dict[str, str]]):
 # ============================================
 # 9. UI DE STREAMLIT
 # ============================================
-
+@st.cache_data
+def save_audio_tempfile(audio_bytes: bytes):
+    with NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+        tmp_file.write(audio_bytes)
+        return tmp_file.name
+       
 def main():
     st.set_page_config(
         page_title="OptimAI",
@@ -2064,9 +2085,7 @@ def main():
         else:
             tmp_path = None
             try:
-                with NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-                    tmp_file.write(audio_bytes_from_recorder)
-                    tmp_path = tmp_file.name
+                tmp_path = save_audio_tempfile(audio_bytes_from_recorder)
 
                 with st.spinner("🎙️ Transcribiendo audio con AssemblyAI…"):
                     aa.settings.api_key = ASSEMBLYAI_API_KEY
@@ -2145,14 +2164,16 @@ def main():
                     full_response = ""
                     
                     try:
-                        # Streaming de la respuesta
-                        for chunk in run_root_agent_with_history_stream(st.session_state["messages"]):
-                            full_response += chunk + " "
-                            # Mostrar con cursor animado y mejor formato
-                            message_placeholder.markdown(full_response + "▌")
-                        
-                        # Reemplazar placeholder con respuesta final sin cursor
-                        message_placeholder.markdown(full_response)
+                        # Ejecución directa sin streaming
+                         response = runner.run(
+                             user_id=USER_ID,
+                             session_id=SESSION_ID,
+                             new_message=content
+                         )
+                     
+                         final_text = response.final_response() or "No pude generar una respuesta."
+                         message_placeholder.markdown(final_text)
+                         full_response = final_text
                         
                     except Exception as e:
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
