@@ -2105,37 +2105,39 @@ def main():
                 {"role": "user", "content": user_display_content or user_prompt}
             )
 
-            # 2) Ejecutar agente con spinner y streaming
+            # 2) Ejecutar agente sin streaming
             with st.chat_message("assistant"):
-                # Mostrar spinner mientras procesa
                 with st.spinner("Analizando solicitud..."):
-                    # Iniciar el streaming
                     message_placeholder = st.empty()
                     full_response = ""
-                    
+            
                     try:
-                        # Construir el contenido correctamente
                         content = types.Content(
-                             role="user",
-                             parts=[types.Part(text=user_prompt)]
-                         )
-                     
-                        # Ejecución directa sin streaming
-                        response = runner.run(
-                             user_id=USER_ID,
-                             session_id=SESSION_ID,
-                             new_message=content
-                         )
-                     
-                        final_text = response.final_response() or "No pude generar una respuesta."
-                        message_placeholder.markdown(final_text)
+                            role="user",
+                            parts=[types.Part(text=user_prompt)]
+                        )
+            
+                        # Ejecución SIN streaming garantizada
+                        result = runner.run(
+                            user_id=USER_ID,
+                            session_id=SESSION_ID,
+                            new_message=content,
+                            stream=False   # ← FORZAMOS NO STREAMING
+                        )
+            
+                        # Forzar a convertir generadores → lista → contenido final
+                        if hasattr(result, "__iter__") and not isinstance(result, LlmResponse):
+                            result = list(result)[-1]  # último chunk
+            
+                        final_text = result.final_response() if hasattr(result, "final_response") else str(result)
                         full_response = final_text
-                     
+                        message_placeholder.markdown(final_text)
+            
                     except Exception as e:
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
                         message_placeholder.markdown(error_msg)
                         full_response = error_msg
-                        
+                        a
             # 3) Guardar respuesta completa en historial
             st.session_state["messages"].append(
                 {"role": "assistant", "content": full_response.strip()}
