@@ -2141,8 +2141,8 @@ def main():
                         if not final_text:
                             final_text = "No pude generar una respuesta."
                      
-                         message_placeholder.markdown(final_text)
-                         full_response = final_text
+                        message_placeholder.markdown(final_text)
+                        full_response = final_text
                      
                     except Exception as e:
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
