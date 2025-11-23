@@ -1820,7 +1820,25 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
                 parts=[types.Part(text=f"[TRANSFER_TO: ProductAdvisorAgent]\n{raw}")]
             )
         )
-
+    #
+    try:
+        if llm_response and llm_response.content and llm_response.content.parts:
+            clean = llm_response.content.parts[0].text
+   
+            # Evitar mostrar JSON o metadatos
+            if clean.strip().startswith("{"):
+                return None
+   
+            # Forzar retorno limpio
+            llm_response.content = types.Content(
+                role="model",
+                parts=[types.Part(text=clean)]
+            )
+    except:
+        pass
+   
+    return llm_response
+   
     return LlmResponse(
         content=types.Content(
             role="model",
