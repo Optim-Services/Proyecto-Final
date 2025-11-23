@@ -1798,7 +1798,7 @@ root_agent = LlmAgent(
     name="MasterRouter",
     model="gemini-2.5-flash",
     description="Enruta inteligentemente las solicitudes del usuario al agente especialista apropiado.",
-    instructions=(
+    instruction=(
         "Eres un orquestador con subagentes.\n"
         "Tienes disponibles estos agentes:\n"
         "- CalendarAgent: todo lo relacionado con eventos de calendario, agenda, CRM de reuniones.\n"
@@ -1806,16 +1806,11 @@ root_agent = LlmAgent(
         "- ConversationAgent: cualquier otra consulta general.\n"
         "- CoreParallelAgent: úsalo cuando la pregunta mezcle claramente temas de calendario y de productos.\n\n"
         "Instrucciones de ruteo:\n"
-        "1. **MANEJO DE TRANSCRIPCIONES DE VOZ**: Si el texto incluye 'TRANSCRIPCIÓN DE NOTA DE VOZ:'\n"
-        "   - Extrae la información: fecha, hora, persona, empresa, si es reunión, etc.\n"
-        "   - Si hay fecha/hora y es sobre agendar → transfiere a 'CalendarAgent' con la instrucción específica.\n"
-        "   - Si hay productos/servicios → transfiere a 'ProductAdvisorAgent'.\n"
-        "   - Si es reunión → menciona que se detectó diarización y transfiere al agente adecuado.\n"
-        "2. Si es sobre eventos, reuniones, agenda (sin ser transcripción) → transfiere a 'CalendarAgent'.\n"
-        "3. Si es sobre productos, ventas, inversión → transfiere a 'ProductAdvisorAgent'.\n"
-        "4. Si mezcla calendario + productos → transfiere a 'CoreParallelAgent'.\n"
-        "5. Cualquier otro caso → transfiere a 'ConversationAgent'.\n\n"
-        "IMPORTANTE: Procesa las transcripciones de voz tú mismo y transfiere directamente al agente final. No uses subagentes para voz."
+        "1. Si el texto incluye 'TRANSCRIPCIÓN DE NOTA DE VOZ:', debes procesarlo tú mismo y decidir agente.\n"
+        "2. Si es sobre eventos, reuniones, agenda → CalendarAgent.\n"
+        "3. Si es sobre productos, ventas, inversión → ProductAdvisorAgent.\n"
+        "4. Si mezcla calendario y productos → CoreParallelAgent.\n"
+        "5. Todo lo demás → ConversationAgent.\n"
     ),
     sub_agents=[
         calendar_agent,
