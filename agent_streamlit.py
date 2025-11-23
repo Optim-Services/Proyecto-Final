@@ -1667,10 +1667,11 @@ core_parallel_agent = ParallelAgent(
 # --- Master after ---
 def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
     """
-    MasterRouter AFTER callback FIX:
-    - Oculta solo JSON internos
-    - Mantiene el ruteo Calendar/Product
-    - NO retorna None (evita romper respuestas)
+    MasterRouter AFTER callback para:
+    - Ocultar JSON internos del extractor y del voice router.
+    - Detectar instrucciones simples como “sincronizar eventos”, “mostrar eventos”, etc.
+    - Transferir correctamente a CalendarAgent o ProductAdvisorAgent.
+    - Evitar que el usuario vea JSON crudo.
     """
 
     raw = ""
@@ -1679,84 +1680,87 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
     except:
         raw = ""
 
-    # ======================================================
-    # 1) OCULTAR SOLO JSON INTERNOS DEL EXTRACTOR Y ROUTER
-    # ======================================================
+
     if raw.startswith("{"):
-        try:
-            data = json.loads(raw)
 
-            # JSON del extractor
-            if all(k in data for k in ["date", "time", "summary", "is_simple_instruction", "key_points"]):
-                callback_context.state["voice_extraction_json"] = raw
-                return LlmResponse(content=types.Content(
-                    role="model",
-                    parts=[types.Part(text="Procesando nota de voz…")]
-                ))
+        # a) JSON del extractor de voz (contiene estas claves)
+        if all(k in raw for k in [
+            "date", "time", "summary", "is_simple_instruction", "key_points"
+        ]):
+            callback_context.state["voice_extraction_json"] = raw
+            return None  # no mostrar nada al usuario
 
-            # JSON del router
-            if all(k in data for k in ["target_agent", "cleaned_query", "rationale"]):
-                callback_context.state["voice_router_json"] = raw
-                return LlmResponse(content=types.Content(
-                    role="model",
-                    parts=[types.Part(text="Enrutando instrucción…")]
-                ))
+        # b) JSON del VoiceRouter
+        if all(k in raw for k in ["target_agent", "cleaned_query", "rationale"]):
+            callback_context.state["voice_router_json"] = raw
+            return None
 
-        except:
-            pass  # Si no es JSON real, seguimos adelante
+        # Cualquier otro JSON tampoco debe mostrarse
+        return None
 
-    # ======================================================
-    # 2) PIPELINE ENTRE EXTRACTOR → ROUTER
-    # ======================================================
-    if "voice_extraction_json" in callback_context.state and "voice_router_json" not in callback_context.state:
+    if (
+        "voice_extraction_json" in callback_context.state
+        and "voice_router_json" not in callback_context.state
+    ):
         ve_raw = callback_context.state["voice_extraction_json"]
+
+        # Mandar al VoiceRouterAgent
+        transfer_text = f"[TRANSFER_TO: VoiceRouterAgent]\n{ve_raw}"
+
         return LlmResponse(
             content=types.Content(
                 role="model",
-                parts=[types.Part(text=f"[TRANSFER_TO: VoiceRouterAgent]\n{ve_raw}")]
+                parts=[types.Part(text=transfer_text)]
             )
         )
 
-    # ======================================================
-    # 3) RUTEO FINAL SEGÚN VOICE_ROUTER
-    # ======================================================
+
     if "voice_router_json" in callback_context.state:
         try:
             data = json.loads(callback_context.state["voice_router_json"])
             target = data["target_agent"]
             cleaned = data["cleaned_query"]
 
-            # limpiar estado
+            final_text = f"[TRANSFER_TO: {target}]\n{cleaned}"
+
+            # Limpiar estado
             callback_context.state.pop("voice_extraction_json", None)
             callback_context.state.pop("voice_router_json", None)
 
             return LlmResponse(
                 content=types.Content(
                     role="model",
-                    parts=[types.Part(text=f"[TRANSFER_TO: {target}]\n{cleaned}")]
+                    parts=[types.Part(text=final_text)]
                 )
             )
-        except:
-            return llm_response
+        except Exception as e:
+            return LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part(text=f"⚠ Error en router JSON: {e}")]
+                )
+            )
 
-    # ======================================================
-    # 4) RUTEO NORMAL (CALENDARIO / PRODUCTOS)
-    # ======================================================
     raw_l = raw.lower()
 
-    # ---- CALENDAR ----
+    # ---- CALENDAR AGENT ----
     calendar_keywords = [
-        "evento", "eventos", "agenda", "calendario", "reunión", "reunion", "cita",
-        "mostrar eventos", "muéstrame eventos", "mis eventos",
-        "lista de eventos", "qué eventos tengo", "que eventos tengo",
-        "sincroniza", "sincronizar", "sincroniza eventos",
-        "sincronizar eventos", "sincronización",
-        "sync", "sync eventos",
-        "actualiza agenda", "actualiza los eventos",
-        "actualiza evento", "actualiza eventos",
-        "sincroniza mi calendario", "sincroniza calendario",
-        "sincronizar los eventos", "sincronizar mis eventos",
-    ]
+    "evento", "eventos", "agenda", "calendario", "reunión", "reunion", "cita",
+
+    "mostrar eventos", "muéstrame eventos", "mis eventos",
+    "lista de eventos", "qué eventos tengo", "que eventos tengo",
+
+    # Variantes reales que dispara el usuario
+    "sincroniza", "sincronizar", "sincroniza eventos",
+    "sincronizar eventos", "sincronización",
+    "sync", "sync eventos",
+    "actualiza agenda", "actualiza los eventos",
+    "actualiza evento", "actualiza eventos",
+    "sincroniza mi calendario", "sincroniza calendario",
+
+    # Para el extractor → voice router → calendar
+    "sincronizar los eventos", "sincronizar mis eventos",
+]
 
     if any(k in raw_l for k in calendar_keywords):
         return LlmResponse(
@@ -1766,11 +1770,11 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
             )
         )
 
-    # ---- PRODUCTOS ----
+    # ---- PRODUCT AGENT ----
     product_keywords = [
-        "productos", "producto", "compras", "venta", "ventas",
-        "catalogo", "catálogo", "qué productos tengo",
-        "lista de productos", "mis productos"
+        "productos", "producto", "compras", "venta", "ventas", "catalogo",
+        "catálogo", "qué productos tengo", "lista de productos",
+        "mis productos"
     ]
 
     if any(k in raw_l for k in product_keywords):
@@ -1780,12 +1784,9 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
                 parts=[types.Part(text=f"[TRANSFER_TO: ProductAdvisorAgent]\n{raw}")]
             )
         )
-
-    # ======================================================
-    # 5) SI NO ES JSON NI TRANSFER NI RUTEO → TEXTO NORMAL
-    # ======================================================
-    return llm_response
-
+   
+    return raw
+    #return llm_respons
 
 # --- MasterRouter / Orquestador ---
 root_agent = LlmAgent(
@@ -1904,226 +1905,60 @@ def save_audio_tempfile(audio_bytes: bytes):
         tmp_file.write(audio_bytes)
         return tmp_file.name
 
-def normalize_adk_response(result):
-    """
-    Normaliza cualquier tipo de respuesta del ADK/Gemini a un formato estándar
-    para que extract_clean_text pueda obtener texto real.
-    """
+def extract_clean_text(result):
 
-    # None
-    if result is None:
-        return None
-
-    # Si ya es string → return
-    if isinstance(result, str):
-        return result
-
-    # Si ya es LlmResponse → return igual
-    from google.adk.models import LlmResponse
-    if isinstance(result, LlmResponse):
-        return result
-
-    # SequentialAgentOutput
+    # 1) final_response
     if hasattr(result, "final_response"):
         try:
-            return result.final_response()
+            txt = result.final_response()
+            if isinstance(txt, str):
+                return txt.strip()
         except:
             pass
 
-    # ParallelAgentOutput (varios subagentes)
-    if hasattr(result, "responses"):
-        try:
-            # Devuelve lista de respuestas individuales
-            return list(result.responses)
-        except:
-            pass
-
-    # GenerateContentResponse (nuevo Gemini 2.5)
-    if hasattr(result, "text"):
-        # Gemini 2.5 ya expone .text con todo concatenado
-        return str(result.text)
-
-    # candidates estilo Gemini 1/2
-    if hasattr(result, "candidates"):
-        try:
+    # 2) LlmResponse → candidates
+    try:
+        if hasattr(result, "candidates") and result.candidates:
             cand = result.candidates[0]
-            if hasattr(cand, "content") and hasattr(cand.content, "parts"):
-                texts = []
-                for p in cand.content.parts:
-                    t = getattr(p, "text", None)
-                    if t:
-                        texts.append(t)
-                return "\n".join(texts)
-        except:
-            pass
+            if hasattr(cand, "content") and cand.content:
+                parts = cand.content.parts
+                txt = "".join(
+                    p.text for p in parts 
+                    if hasattr(p, "text")
+                ).strip()
+                if txt:
+                    return txt
+    except:
+        pass
 
-    # dict-style (a veces ADK envuelve la respuesta)
+    # 3) dict-style response
     if isinstance(result, dict):
         if "output_text" in result:
-            return result["output_text"]
-        if "text" in result:
-            return result["text"]
+            return str(result["output_text"]).strip()
         if "candidates" in result:
-            try:
-                parts = result["candidates"][0]["content"]["parts"]
-                txts = [p.get("text","") for p in parts if isinstance(p, dict)]
-                return "\n".join(txts)
-            except:
-                pass
+            cand = result["candidates"][0]
+            if "content" in cand and "parts" in cand["content"]:
+                parts = cand["content"]["parts"]
+                txt = "".join(
+                    p.get("text", "") for p in parts
+                ).strip()
+                if txt:
+                    return txt
 
-    # Si es un iterable de eventos de streaming → tomar el último
-    if hasattr(result, "__iter__") and not isinstance(result, (str, bytes)):
+    # 4) output_text directo (Google ADK nuevas versiones)
+    if hasattr(result, "output_text"):
         try:
-            events = list(result)
-            return normalize_adk_response(events[-1]) if events else ""
+            return result.output_text.strip()
         except:
             pass
 
-    # Fallback
-    return str(result)
-
-
-def extract_clean_text(result):
-    """
-    Extrae solo texto útil de cualquier objeto del ADK o Gemini 2.5.
-    Usa normalize_adk_response primero.
-    """
-
-    r = normalize_adk_response(result)
-
-    # None
-    if r is None:
-        return ""
-
-    # str directo
-    if isinstance(r, str):
-        return r.strip()
-
-    # LlmResponse
-    from google.adk.models import LlmResponse
-    if isinstance(r, LlmResponse):
-        try:
-            if r.content and hasattr(r.content, "parts"):
-                txts = []
-                for p in r.content.parts:
-                    t = getattr(p, "text", None)
-                    if t:
-                        txts.append(t)
-                return "\n".join(txts).strip()
-        except:
-            pass
-
-    # lista (ParallelAgentOutput normalizado)
-    if isinstance(r, list):
-        texts = []
-        for item in r:
-            t = extract_clean_text(item)
-            if t:
-                texts.append(t)
-        return "\n\n".join(texts).strip()
-
-    # dict normalizado
-    if isinstance(r, dict):
-        if "text" in r:
-            return str(r["text"]).strip()
-        if "output_text" in r:
-            return str(r["output_text"]).strip()
-
-    # fallback
-    return str(r).strip()
-
-def build_history_prompt(messages):
-    """
-    Construye un prompt con el historial como texto (mismo método del archivo que sí funciona).
-    """
-    if not messages:
-        return ""
-
-    # Tomar SOLO mensajes del usuario
-    user_messages = [m for m in messages if m["role"] == "user"]
-
-    if not user_messages:
-        return messages[-1]["content"]
-
-    last_user = user_messages[-1]
-    idx = messages.index(last_user)
-
-    prev = messages[:idx]
-
-    lines = []
-    for m in prev:
-        role = "Usuario" if m["role"] == "user" else "Asistente"
-        if m["content"]:
-            lines.append(f"{role}: {m['content']}")
-
-    context_block = "\n".join(lines)
-
-    if context_block:
-        return (
-            "Contexto previo:\n"
-            f"{context_block}\n\n"
-            "Solicitud actual del usuario:\n"
-            f"{last_user['content']}"
-        )
-    else:
-        return last_user["content"]
-
-
-def run_root_agent_with_history_stream(messages):
-    """
-    Streaming REAL compatible con tu versión del ADK.
-    (Usa runner.run() sin history/agent, igual que agent_adk.py)
-    """
-
-    # 1) Convertir historial a texto
-    query = build_history_prompt(messages)
-
-    content = types.Content(
-        role="user",
-        parts=[types.Part(text=query)]
-    )
-
-    # 2) Ejecutar el agente (runner.run devuelve eventos)
-    try:
-        events = runner.run(
-            user_id=USER_ID,
-            session_id=SESSION_ID,
-            new_message=content
-        )
-
-        full = ""
-
-        for event in events:
-
-            # Final response
-            if hasattr(event, "is_final_response") and event.is_final_response():
-
-                if event.content and event.content.parts:
-                    for part in event.content.parts:
-                        if getattr(part, "text", None):
-                            text = part.text
-
-                            # dividir en chunks como en tu archivo funcional
-                            sentences = text.split(". ")
-                            chunk = ""
-                            for i, s in enumerate(sentences):
-                                chunk += s + ". "
-                                if len(chunk) > 100 or i == len(sentences) - 1:
-                                    yield chunk.strip()
-                                    full += chunk
-                                    chunk = ""
-                return
-
-        yield "No recibí una respuesta final del agente."
-
-    except Exception as e:
-        yield f"⚠️ Ocurrió un error al ejecutar el agente: {e}"
-
+    # 5) Fallback limpio (NO poner str(result))
+    return ""
 
 def main():
     st.set_page_config(
         page_title="OptimAI",
-        page_icon="🤖",
+        page_icon="",
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -2141,48 +1976,51 @@ def main():
         unsafe_allow_html=True
     )
 
-    # Inicializar historial
+    # Historial persistente con mejor manejo
     if "messages" not in st.session_state:
         st.session_state["messages"] = [
             {
-                "role": "assistant",
+                "role": "assistant", 
                 "content": "Hola, soy tu agente de calendario y CRM. ¿Qué necesitas hacer hoy? 😊",
             }
         ]
 
+    # Control para evitar duplicados en renderizado
     if "last_processed_input" not in st.session_state:
         st.session_state["last_processed_input"] = ""
 
-    # -----------------------------
-    # Sidebar: audio / grabación
-    # -----------------------------
-    audio_bytes_from_recorder = None
+    # -------------------------
+    # Sidebar: SOLO audio
+    # -------------------------
+    audio_bytes_from_recorder: Optional[bytes] = None
     send_audio = False
 
     with st.sidebar:
         st.subheader("🎤 Nota de voz al agente")
 
         st.markdown(
-            "Puedes grabar una nota de voz o subir un archivo .wav con tus instrucciones.\n\n"
+            "Puedes grabar una nota de voz o subir un archivo .wav con tus instrucciones o una reunión breve.\n\n"
             "Ejemplos:\n"
             "- \"Agenda una reunión con Tecnoflex el martes a las 11 am\"\n"
-            "- \"Resumen de la llamada con el cliente\""
+            "- \"Resumen de la llamada con el cliente sobre sus necesidades\""
         )
 
+        # Tabs para grabación o subida de archivo
         tab1, tab2 = st.tabs(["🎙️ Grabar", "📁 Subir .wav"])
-
+        
         with tab1:
             recording = mic_recorder(
                 start_prompt="🎙️ Iniciar grabación",
                 stop_prompt="⏹️ Detener grabación",
                 key="mic_recorder_widget_sidebar",
             )
-
+        
         with tab2:
             uploaded_file = st.file_uploader(
                 "Sube archivo de audio (.wav)",
                 type=["wav"],
                 key="wav_file_uploader",
+                help="Selecciona un archivo .wav para transcribir"
             )
 
         if recording and "bytes" in recording and recording["bytes"]:
@@ -2193,9 +2031,10 @@ def main():
                 use_container_width=True,
                 key="send_recorded_audio_sidebar",
             )
-
-        audio_bytes_from_file = None
-        if uploaded_file:
+        
+        # Procesar archivo subido
+        audio_bytes_from_file: Optional[bytes] = None
+        if uploaded_file is not None:
             audio_bytes_from_file = uploaded_file.read()
             st.audio(audio_bytes_from_file, format="audio/wav")
             send_audio = st.button(
@@ -2203,41 +2042,44 @@ def main():
                 use_container_width=True,
                 key="send_uploaded_audio_sidebar",
             )
-
+        
+        # Combinar ambos orígenes de audio
         if audio_bytes_from_file:
             audio_bytes_from_recorder = audio_bytes_from_file
 
-    # -----------------------------
-    # Mostrar historial
-    # -----------------------------
+    # -------------------------
+    # Mostrar historial con clave única para evitar duplicados
+    # -------------------------
     chat_container = st.container()
-
+    
     with chat_container:
-        for msg in st.session_state["messages"]:
+        for idx, msg in enumerate(st.session_state["messages"]):
+            # st.chat_message no acepta 'key', usamos solo el role
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"], unsafe_allow_html=True)
 
-    # -----------------------------
-    # Capturar texto del usuario
-    # -----------------------------
-    user_prompt = None
-    user_display_content = None
+    # -------------------------
+    # Entrada de texto con control de duplicados
+    # -------------------------
+    user_prompt: Optional[str] = None
+    user_display_content: Optional[str] = None
 
     text_prompt = st.chat_input("Escribe tu instrucción o pregunta aquí…", key="main_chat_input")
-
+    
+    # Evitar procesar el mismo input múltiples veces
     if text_prompt and text_prompt != st.session_state["last_processed_input"]:
         user_prompt = text_prompt
         user_display_content = text_prompt
         st.session_state["last_processed_input"] = text_prompt
 
-    # -----------------------------
-    # Transcripción con AssemblyAI
-    # -----------------------------
+    # -------------------------
+    # Transcripción de audio (AssemblyAI)
+    # -------------------------
     if not user_prompt and send_audio:
         if not ASSEMBLYAI_API_KEY:
-            st.error("Falta `ASSEMBLYAI_API_KEY` en el entorno.")
+            st.error("No se puede transcribir: falta `ASSEMBLYAI_API_KEY` en el entorno.")
         elif not audio_bytes_from_recorder:
-            st.warning("No hay audio capturado. Intenta nuevamente.")
+            st.warning("No hay audio capturado. Graba de nuevo por favor.")
         else:
             tmp_path = None
             try:
@@ -2263,73 +2105,100 @@ def main():
                             user_display_content = f"🎤 {text}"
                             st.session_state["last_processed_input"] = f"audio_{hash(text) % 10000}"
                         else:
-                            st.info("La transcripción no devolvió texto interpretable.")
-
+                            st.info("La transcripción no devolvió texto interpretable. Intenta de nuevo.")
+                            
             except Exception as e:
-                st.error(f"❌ Error inesperado: {e}")
+                error_msg = str(e)
+                if "AssemblyAI" in error_msg or "assemblyai" in error_msg.lower():
+                    st.error(f"❌ Error en AssemblyAI: {e}")
+                else:
+                    st.error(f"❌ Error inesperado: {e}")
             finally:
                 if tmp_path and os.path.exists(tmp_path):
                     try:
                         os.remove(tmp_path)
-                    except:
+                    except Exception:
                         pass
 
-    # -----------------------------
-    # EJECUCIÓN DEL AGENTE (STREAMING)
-    # -----------------------------
+    # -------------------------
+    # Ejecución del agente con streaming
+    # -------------------------
     if user_prompt:
-
-        # --- Validación de seguridad ---
+        # Validación de seguridad
         if is_suspicious_prompt(user_prompt):
             warning = (
-                "Por seguridad no puedo ayudar con solicitudes relacionadas con claves, tokens o "
-                "secretos. 🔒\n\n"
+                "Por seguridad no puedo ayudar con solicitudes relacionadas con contraseñas, claves, tokens, "
+                "secretos, configuraciones internas o con modificar las instrucciones internas del agente. 🔒\n\n"
                 "Pero con gusto puedo ayudarte con tu calendario, tus clientes o análisis de productos. 📅📊"
             )
-
+            
+            # Agregar mensaje del usuario
             st.session_state["messages"].append(
                 {"role": "user", "content": user_display_content or user_prompt}
             )
-
+            
+            # Mostrar advertencia
             with st.chat_message("assistant"):
                 st.markdown(warning)
-
+            
             st.session_state["messages"].append({"role": "assistant", "content": warning})
-
+            
+            # Limpiar y rerun
             st.session_state["last_processed_input"] = ""
             st.rerun()
-
-        # --- Flujo normal ---
+            
         else:
+            # 1) Agregar mensaje del usuario al historial inmediatamente
             st.session_state["messages"].append(
                 {"role": "user", "content": user_display_content or user_prompt}
             )
 
+            # 2) Ejecutar el agente sin streaming visible
             with st.chat_message("assistant"):
                 with st.spinner("Analizando solicitud..."):
                     message_placeholder = st.empty()
                     full_response = ""
-
+            
                     try:
-                        for chunk in run_root_agent_with_history_stream(st.session_state["messages"]):
-                            full_response += chunk + " "
-                            message_placeholder.markdown(full_response + "▌")
-
-                        message_placeholder.markdown(full_response)
-
+                        content = types.Content(
+                             role="user",
+                             parts=[types.Part(text=user_prompt)]
+                        )
+                     
+                        result = runner.run(
+                             user_id=USER_ID,
+                             session_id=SESSION_ID,
+                             new_message=content
+                        )
+                     
+                        # Si result es un generador, convertirlo a lista y tomar el final
+                        if hasattr(result, "__iter__") and not hasattr(result, "final_response"):
+                            result = list(result)[-1]
+                     
+                        # === EXTRACCIÓN DE TEXTO CORREGIDA ===
+                        final_text = extract_clean_text(result)
+                     
+                        if not final_text:
+                            final_text = "No pude generar una respuesta."
+                     
+                        message_placeholder.markdown(final_text)
+                        full_response = final_text
+                     
                     except Exception as e:
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
                         message_placeholder.markdown(error_msg)
                         full_response = error_msg
-
+                        
+            # 3) Guardar respuesta completa en historial
             st.session_state["messages"].append(
                 {"role": "assistant", "content": full_response.strip()}
             )
-
+            
+            # Limpiar el input procesado
             st.session_state["last_processed_input"] = ""
+            
+            # Forzar rerun para actualizar la UI
             st.rerun()
-
-
 
 
 _sessions_to_close = []
