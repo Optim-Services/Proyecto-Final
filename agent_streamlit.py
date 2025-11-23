@@ -1818,6 +1818,8 @@ root_agent = LlmAgent(
         "IMPORTANTE: Procesa las transcripciones de voz tú mismo y transfiere directamente al agente final. No uses subagentes para voz."
     ),
     sub_agents=[
+        calendar_agent,
+        product_advisor_agent,  
         conversation_agent,
         core_parallel_agent,
         voice_sequential_agent,
@@ -1909,6 +1911,7 @@ def save_audio_tempfile(audio_bytes: bytes):
     with NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
         tmp_file.write(audio_bytes)
         return tmp_file.name
+
 
 
 def extract_clean_text(result):
@@ -2009,6 +2012,8 @@ def extract_clean_text(result):
 
     # 8) Fallback sin usar str(result) para evitar metadata
     return ""
+
+
 
 def main():
     st.set_page_config(
