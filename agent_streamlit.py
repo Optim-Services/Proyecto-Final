@@ -2304,7 +2304,7 @@ def main():
                         final_text = extract_clean_text(result)
                      
                         if not final_text:
-                            final_text = "No pude generar una respuesta."
+                            final_text = f"❌ No pude generar una respuesta. Razón: {e}"
                      
                         message_placeholder.markdown(final_text)
                         full_response = final_text
