@@ -77,11 +77,15 @@ Un agente de IA avanzado con capacidades de transcripción de voz, diarización 
 3. Espera a que el proyecto se configure (2-3 minutos)
 
 #### 2.2. Obtener Credenciales API
-1. Entra a tu proyecto → **Project Settings** → **API**
-2. Ahí encontrarás:
-   - **Project URL** → `SUPABASE_URL`
+1. Entra a tu proyecto → **Project Settings** → **API KEY** → **Legacy API KEY**
+
+Ahí encontrarás:
    - **anon public key** → `SUPABASE_ANON_KEY`
    - **service_role key** → `SUPABASE_SERVICE_KEY` (¡no publiques nunca!)
+3.  Entra a tu proyecto → **Project Settings** → **DataAPI**
+
+Ahí encontrarás:
+   - **Project URL** → `SUPABASE_URL`
 
 #### 2.3. Crear Tablas y Datos de Ejemplo
 1. En tu proyecto de Supabase, ve a **SQL Editor** → **New query**
@@ -138,21 +142,21 @@ GOOGLE_API_KEY = "tu_google_api_key"
 2. **Configurar Pantalla de Consentimiento**
    - Ve a **API & Services** → **OAuth consent screen**
    - **User Type**: External
-   - Complea los datos básicos de la aplicación
+   - Completa los datos básicos de la aplicación
    - Agrega el scope requerido:
      ```
      https://www.googleapis.com/auth/calendar
      ```
 
 3. **Agregar Usuarios de Prueba (Obligatorio en modo Testing)**
-   - En **OAuth consent screen** → **Test users**
+   - En **OAuth consent screen** → **Public** → **Test users**
    - Agrega los correos que podrán usar la app
    - Solo estos usuarios podrán autorizar la app en Streamlit Cloud
 
 #### 4.2. Crear Credenciales OAuth (Web Application)
 1. **Crear Credenciales**
    - Ve a **Credentials** → **Create Credentials** → **OAuth client ID**
-   - **Tipo**: Web application
+   - **Tipo**: Web application (para streamlit) Desktop Application (para local)
    - **Nombre**: OptimAI Streamlit
 
 2. **Configurar Redirect URI**
@@ -167,30 +171,25 @@ GOOGLE_API_KEY = "tu_google_api_key"
    - Guarda el archivo como `credentials.json`
 
 #### 4.3. Configurar en Streamlit Cloud
-**Opción A: Subir credentials.json al repositorio**
-- Sube el archivo `credentials.json` a tu repositorio Git
-- La aplicación lo leerá automáticamente
-
-**Opción B: Usar Streamlit Secrets (Recomendado)**
-
-**Método 1: Credenciales completas (más sencillo)**
-1. Copia todo el contenido de tu `credentials.json`
-2. En tu app de Streamlit Cloud → **Settings** → **Secrets**
-3. Agrega las credenciales en formato TOML:
+1. En tu app de Streamlit Cloud → **Settings** → **Secrets**
+2. Copia todo el contenido de tu `credentials.json` descargado
+3. Pégalo en el campo `GOOGLE_CREDENTIALS` usando formato multilinea:
 ```toml
-[secrets]
-# Google Calendar - Credenciales completas como JSON string
-GOOGLE_CREDENTIALS = '{"web":{"client_id":"tu_client_id","client_secret":"tu_client_secret","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","redirect_uris":["https://tu-app.streamlit.app"]}}'
+GOOGLE_CREDENTIALS = """
+{
+  "web": {
+    "client_id": "tu_client_id",
+    "project_id": "tu_project_id",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "client_secret": "tu_client_secret",
+    "redirect_uris": ["https://agente-optimai.streamlit.app"],
+    "javascript_origins": ["https://agente-optimai.streamlit.app"]
+  }
+}
+"""
 ```
-
-**Método 2: Credenciales separadas**
-```toml
-[secrets]
-# Google Calendar - Credenciales separadas
-GOOGLE_CLIENT_ID = "tu_client_id"
-GOOGLE_CLIENT_SECRET = "tu_client_secret"
-GOOGLE_REDIRECT_URI = "https://tu-app.streamlit.app"
-```
+4. **Importante**: Reemplaza `https://agente-optimai.streamlit.app` con la URL real de tu app
 
 #### 4.4. Autorización en Streamlit Cloud
 1. La primera vez que ejecutes la app, verás "Conectar Google Calendar"
@@ -247,74 +246,33 @@ SUPABASE_URL = "https://tu-proyecto.supabase.co"
 SUPABASE_ANON_KEY = "tu_supabase_anon_key"
 SUPABASE_SERVICE_KEY = "tu_supabase_service_key"
 
-# Google Calendar - Elige UNO de los siguientes métodos:
-
-# Método 1: Credenciales completas (recomendado)
-GOOGLE_CREDENTIALS = '{"web":{"client_id":"tu_client_id","client_secret":"tu_client_secret","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","redirect_uris":["https://tu-app.streamlit.app"]}}'
-
-# Método 2: Credenciales separadas (alternativa)
-# GOOGLE_CLIENT_ID = "tu_google_client_id"
-# GOOGLE_CLIENT_SECRET = "tu_google_client_secret"
-# GOOGLE_REDIRECT_URI = "https://tu-app.streamlit.app"
+# Google Calendar (credenciales completas)
+GOOGLE_CREDENTIALS = """
+{
+  "web": {
+    "client_id": "",
+    "project_id": "",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "client_secret": "",
+    "redirect_uris": ["https://agente-optimai.streamlit.app"],
+    "javascript_origins": ["https://agente-optimai.streamlit.app"]
+  }
+}
+"""
 ```
 
 ## 🚀 Instalación Local
 
 ### 1. Clonar el Repositorio
-```bash
-git clone https://github.com/tu-usuario/optimai-calendar-crm.git
-cd optimai-calendar-crm
-```
+Descarga el archivo adjunto ´OptimAi adk web.zip´ y descromprimelo donde gustes.
 
-### 2. Crear Ambiente Virtual
-```bash
-python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# o
-venv\Scripts\activate     # Windows
-```
-
-### 3. Instalar Dependencias
-```bash
-pip install -r requirements.txt
-```
-
-### 4. Configurar Variables de Entorno
-Crea un archivo `.env` usando la plantilla `.env.example`:
-```bash
-cp .env.example .env
-```
-
-Edita `.env` con tus credenciales:
-```env
-GOOGLE_API_KEY=tu_google_api_key
-ASSEMBLYAI_API_KEY=tu_assemblyai_api_key
-SUPABASE_URL=https://tu-proyecto.supabase.co
-SUPABASE_ANON_KEY=tu_supabase_anon_key
-SUPABASE_SERVICE_KEY=tu_supabase_service_key
-```
-
-### 5. Configurar Base de Datos en Supabase
-1. En tu proyecto de Supabase, ve a **SQL Editor** → **New query**
-2. Copia y pega el contenido del archivo `datos.sql`
-3. Haz clic en **Run** para ejecutar el script
-4. Verifica que se crearon las tablas: `clients`, `products`, `calendar_events`, `client_products`
-
-### 6. Configurar Google Calendar (Opcional)
-1. Descarga tus credenciales de Google Cloud Console como `credentials.json`
-2. Asegúrate que el archivo tenga el formato "web" (no "installed")
-3. Coloca el archivo en el directorio raíz del proyecto
-
-### 7. Ejecutar Localmente
-```bash
-# Versión limpia y comentada (recomendada)
-streamlit run agent_streamlit_clean.py
-
-# Versión original
-streamlit run agent_streamlit.py
-```
+### 2. Configurar Variables de Entorno
+Sigue los pasos que se encuentran en el README.md que se encuentran ubcados en el archivo adjuntado.
 
 ## 📱 Uso de la Aplicación
+
+**Nota:** se debe de dar la indicacióna al incio de la conversación del agente "realiza una sincronización" para conectar con Google Calendar.(en caso de que ya se haya realizado ua vez, no es necesario realizarlo de nuevo)
 
 ### Por Voz
 1. **Grabar**: Usa el micrófono para grabar instrucciones o reuniones
@@ -328,7 +286,7 @@ streamlit run agent_streamlit.py
 
 ## 📋 Estructura del Código (Versión Limpia)
 
-El archivo `agent_streamlit_clean.py` está organizado en 16 secciones principales para máxima claridad:
+El archivo `agent_streamlit.py` está organizado en 16 secciones principales para máxima claridad:
 
 ### **1. Importaciones y Configuración**
 - Todas las librerías necesarias importadas con comentarios
@@ -387,9 +345,9 @@ Los prompts de los agentes están claramente documentados:
 # En la función aa_transcribe_note
 transcript = transcriber.transcribe(
     audio_url,
-    speaker_labels=True,    # Activar diarización
-    auto_highlights=True,   # Resaltar puntos clave
-    sentiment_analysis=True # Análisis de sentimientos
+    speaker_labels=True,    
+    auto_highlights=True,   
+    sentiment_analysis=True 
 )
 ```
 
