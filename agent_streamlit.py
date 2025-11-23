@@ -2238,7 +2238,7 @@ def main():
                              parts=[types.Part(text=user_prompt)]
                         )
                      
-                        result = runner.run(
+                        raw_result = runner.run(
                              user_id=USER_ID,
                              session_id=SESSION_ID,
                              new_message=content
