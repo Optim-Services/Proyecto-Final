@@ -1667,11 +1667,10 @@ core_parallel_agent = ParallelAgent(
 # --- Master after ---
 def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
     """
-    MasterRouter AFTER callback para:
-    - Ocultar JSON internos del extractor y del voice router.
-    - Detectar instrucciones simples como “sincronizar eventos”, “mostrar eventos”, etc.
-    - Transferir correctamente a CalendarAgent o ProductAdvisorAgent.
-    - Evitar que el usuario vea JSON crudo.
+    MasterRouter AFTER callback FIX:
+    - Oculta solo JSON internos
+    - Mantiene el ruteo Calendar/Product
+    - NO retorna None (evita romper respuestas)
     """
 
     raw = ""
@@ -1680,87 +1679,84 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
     except:
         raw = ""
 
-
+    # ======================================================
+    # 1) OCULTAR SOLO JSON INTERNOS DEL EXTRACTOR Y ROUTER
+    # ======================================================
     if raw.startswith("{"):
+        try:
+            data = json.loads(raw)
 
-        # a) JSON del extractor de voz (contiene estas claves)
-        if all(k in raw for k in [
-            "date", "time", "summary", "is_simple_instruction", "key_points"
-        ]):
-            callback_context.state["voice_extraction_json"] = raw
-            return None  # no mostrar nada al usuario
+            # JSON del extractor
+            if all(k in data for k in ["date", "time", "summary", "is_simple_instruction", "key_points"]):
+                callback_context.state["voice_extraction_json"] = raw
+                return LlmResponse(content=types.Content(
+                    role="model",
+                    parts=[types.Part(text="Procesando nota de voz…")]
+                ))
 
-        # b) JSON del VoiceRouter
-        if all(k in raw for k in ["target_agent", "cleaned_query", "rationale"]):
-            callback_context.state["voice_router_json"] = raw
-            return None
+            # JSON del router
+            if all(k in data for k in ["target_agent", "cleaned_query", "rationale"]):
+                callback_context.state["voice_router_json"] = raw
+                return LlmResponse(content=types.Content(
+                    role="model",
+                    parts=[types.Part(text="Enrutando instrucción…")]
+                ))
 
-        # Cualquier otro JSON tampoco debe mostrarse
-        return None
+        except:
+            pass  # Si no es JSON real, seguimos adelante
 
-    if (
-        "voice_extraction_json" in callback_context.state
-        and "voice_router_json" not in callback_context.state
-    ):
+    # ======================================================
+    # 2) PIPELINE ENTRE EXTRACTOR → ROUTER
+    # ======================================================
+    if "voice_extraction_json" in callback_context.state and "voice_router_json" not in callback_context.state:
         ve_raw = callback_context.state["voice_extraction_json"]
-
-        # Mandar al VoiceRouterAgent
-        transfer_text = f"[TRANSFER_TO: VoiceRouterAgent]\n{ve_raw}"
-
         return LlmResponse(
             content=types.Content(
                 role="model",
-                parts=[types.Part(text=transfer_text)]
+                parts=[types.Part(text=f"[TRANSFER_TO: VoiceRouterAgent]\n{ve_raw}")]
             )
         )
 
-
+    # ======================================================
+    # 3) RUTEO FINAL SEGÚN VOICE_ROUTER
+    # ======================================================
     if "voice_router_json" in callback_context.state:
         try:
             data = json.loads(callback_context.state["voice_router_json"])
             target = data["target_agent"]
             cleaned = data["cleaned_query"]
 
-            final_text = f"[TRANSFER_TO: {target}]\n{cleaned}"
-
-            # Limpiar estado
+            # limpiar estado
             callback_context.state.pop("voice_extraction_json", None)
             callback_context.state.pop("voice_router_json", None)
 
             return LlmResponse(
                 content=types.Content(
                     role="model",
-                    parts=[types.Part(text=final_text)]
+                    parts=[types.Part(text=f"[TRANSFER_TO: {target}]\n{cleaned}")]
                 )
             )
-        except Exception as e:
-            return LlmResponse(
-                content=types.Content(
-                    role="model",
-                    parts=[types.Part(text=f"⚠ Error en router JSON: {e}")]
-                )
-            )
+        except:
+            return llm_response
 
+    # ======================================================
+    # 4) RUTEO NORMAL (CALENDARIO / PRODUCTOS)
+    # ======================================================
     raw_l = raw.lower()
 
-    # ---- CALENDAR AGENT ----
+    # ---- CALENDAR ----
     calendar_keywords = [
-    "evento", "eventos", "agenda", "calendario", "reunión", "reunion", "cita",
-
-    "mostrar eventos", "muéstrame eventos", "mis eventos",
-    "lista de eventos", "qué eventos tengo", "que eventos tengo",
-
-    # Variantes reales que dispara el usuario
-    "sincroniza", "sincronizar", "sincroniza eventos",
-    "sincronizar eventos", "sincronización",
-    "sync", "sync eventos",
-    "actualiza agenda", "actualiza los eventos",
-    "actualiza evento", "actualiza eventos",
-    "sincroniza mi calendario", "sincroniza calendario",
-
-    # Para el extractor → voice router → calendar
-    "sincronizar los eventos", "sincronizar mis eventos",
-]
+        "evento", "eventos", "agenda", "calendario", "reunión", "reunion", "cita",
+        "mostrar eventos", "muéstrame eventos", "mis eventos",
+        "lista de eventos", "qué eventos tengo", "que eventos tengo",
+        "sincroniza", "sincronizar", "sincroniza eventos",
+        "sincronizar eventos", "sincronización",
+        "sync", "sync eventos",
+        "actualiza agenda", "actualiza los eventos",
+        "actualiza evento", "actualiza eventos",
+        "sincroniza mi calendario", "sincroniza calendario",
+        "sincronizar los eventos", "sincronizar mis eventos",
+    ]
 
     if any(k in raw_l for k in calendar_keywords):
         return LlmResponse(
@@ -1770,11 +1766,11 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
             )
         )
 
-    # ---- PRODUCT AGENT ----
+    # ---- PRODUCTOS ----
     product_keywords = [
-        "productos", "producto", "compras", "venta", "ventas", "catalogo",
-        "catálogo", "qué productos tengo", "lista de productos",
-        "mis productos"
+        "productos", "producto", "compras", "venta", "ventas",
+        "catalogo", "catálogo", "qué productos tengo",
+        "lista de productos", "mis productos"
     ]
 
     if any(k in raw_l for k in product_keywords):
@@ -1784,14 +1780,12 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
                 parts=[types.Part(text=f"[TRANSFER_TO: ProductAdvisorAgent]\n{raw}")]
             )
         )
-   
-    return LlmResponse(
-    content=types.Content(
-        role="model",
-        parts=[types.Part(text=raw)]
-             )
-         )
-    #return llm_respons
+
+    # ======================================================
+    # 5) SI NO ES JSON NI TRANSFER NI RUTEO → TEXTO NORMAL
+    # ======================================================
+    return llm_response
+
 
 # --- MasterRouter / Orquestador ---
 root_agent = LlmAgent(
