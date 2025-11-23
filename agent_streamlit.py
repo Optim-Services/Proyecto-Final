@@ -1910,173 +1910,104 @@ def save_audio_tempfile(audio_bytes: bytes):
         tmp_file.write(audio_bytes)
         return tmp_file.name
 
-def normalize_adk_response(result):
+
+def extract_clean_text(result):
     """
-    Normaliza la respuesta del ADK a un LlmResponse limpio SIN metadata.
-    Siempre devuelve un LlmResponse que contenga solo texto legible.
+    Extrae texto útil desde cualquier tipo de objeto que pueda devolver el ADK/Gemini.
+    Quita metadata, objetos internos, grounding, etc.
+    Devuelve únicamente texto que el usuario debería ver.
     """
 
-    # -----------------------------
-    # 1) Si ya es LlmResponse
-    # -----------------------------
-    try:
-        if isinstance(result, LlmResponse):
-            # Extraer texto limpio
-            txt = extract_clean_text(result)
-            return LlmResponse(
-                content=types.Content(
-                    role="model",
-                    parts=[types.Part(text=txt)]
-                )
-            )
-    except:
-        pass
+    # 0) None
+    if result is None:
+        return ""
 
-    # -----------------------------
-    # 2) Si es string → envolverlo limpio
-    # -----------------------------
+    # 1) str → ya es texto final
     if isinstance(result, str):
-        return LlmResponse(
-            content=types.Content(
-                role="model",
-                parts=[types.Part(text=result.strip())]
-            )
-        )
+        return result.strip()
 
-    # -----------------------------
-    # 3) Si es dict → buscar texto
-    # -----------------------------
-    if isinstance(result, dict):
-
-        # a) Intento 1: "output_text"
-        if "output_text" in result:
-            return LlmResponse(
-                content=types.Content(
-                    role="model",
-                    parts=[types.Part(text=str(result["output_text"]).strip())]
-                )
-            )
-
-        # b) Intento 2: candidates → parts → text
-        try:
-            cand = result.get("candidates", [{}])[0]
-            parts = cand.get("content", {}).get("parts", [])
-            text = "".join(p.get("text", "") for p in parts).strip()
-
-            return LlmResponse(
-                content=types.Content(
-                    role="model",
-                    parts=[types.Part(text=text)]
-                )
-            )
-        except:
-            pass
-
-    # -----------------------------
-    # 4) SequentialAgentOutput
-    # -----------------------------
+    # 2) SequentialAgentOutput → usar final_response()
     if hasattr(result, "final_response"):
         try:
-            txt = result.final_response()
-            txt = extract_clean_text(txt)
-            return LlmResponse(
-                content=types.Content(
-                    role="model",
-                    parts=[types.Part(text=txt)]
-                )
-            )
-        except:
+            final = result.final_response()
+            txt = extract_clean_text(final)
+            if txt:
+                return txt
+        except Exception:
             pass
 
-    # -----------------------------
-    # 5) ParallelAgentOutput
-    # -----------------------------
+    # 3) LlmResponse clásico (Google ADK)
+    if isinstance(result, LlmResponse):
+        try:
+            if getattr(result, "content", None) and getattr(result.content, "parts", None):
+                parts = result.content.parts
+                txt = "".join(
+                    getattr(p, "text", "") for p in parts
+                    if hasattr(p, "text")
+                ).strip()
+                if txt:
+                    return txt
+        except Exception:
+            pass
+
+    # 4) GenerateContentResponse / Gemini (candidates → content → parts)
+    if hasattr(result, "candidates"):
+        try:
+            cand = result.candidates[0]
+            if hasattr(cand, "content") and getattr(cand.content, "parts", None):
+                parts = cand.content.parts
+                txt = "".join(
+                    getattr(p, "text", "") for p in parts
+                    if hasattr(p, "text")
+                ).strip()
+                if txt:
+                    return txt
+        except Exception:
+            pass
+
+    # 5) dict-style (ADK interno)
+    if isinstance(result, dict):
+
+        # output_text directo
+        if "output_text" in result:
+            txt = str(result["output_text"]).strip()
+            if txt:
+                return txt
+
+        # candidates estilo dict
+        try:
+            cands = result.get("candidates", [])
+            if cands:
+                parts = cands[0].get("content", {}).get("parts", [])
+                txt = "".join(
+                    p.get("text", "") for p in parts
+                    if isinstance(p, dict)
+                ).strip()
+                if txt:
+                    return txt
+        except Exception:
+            pass
+
+    # 6) output_text como atributo
+    if hasattr(result, "output_text"):
+        try:
+            txt = result.output_text
+            if isinstance(txt, str) and txt.strip():
+                return txt.strip()
+        except Exception:
+            pass
+
+    # 7) ParallelAgentOutput → combinar sub-respuestas
     if hasattr(result, "responses"):
         texts = []
         for r in result.responses:
             txt = extract_clean_text(r)
             if txt:
                 texts.append(txt)
+        if texts:
+            return "\n\n".join(texts)
 
-        return LlmResponse(
-            content=types.Content(
-                role="model",
-                parts=[types.Part(text="\n\n".join(texts))]
-            )
-        )
-
-    # -----------------------------
-    # 6) Fallback → respuesta vacía limpia
-    # -----------------------------
-    return LlmResponse(
-        content=types.Content(
-            role="model",
-            parts=[types.Part(text="")]
-        )
-    )
-
-def extract_clean_text(result):
-    """
-    Extrae texto limpio de los distintos formatos que puede devolver el ADK/Runner.
-    Acepta strings, LlmResponse, dicts con 'output_text' o 'candidates', outputs secuenciales/para...
-    """
-    # 0) Si es None
-    if result is None:
-        return ""
-
-    # 1) Si es string → devolver strip()
-    if isinstance(result, str):
-        return result.strip()
-
-    # 2) Si tiene final_response (SequentialAgentOutput u objetos similares)
-    if hasattr(result, "final_response"):
-        try:
-            txt = result.final_response()
-            if isinstance(txt, str):
-                return txt.strip()
-            # si final_response devuelve LlmResponse u otra cosa, envolverlo de nuevo y continuar
-            result = txt
-        except Exception:
-            pass
-
-    # 3) LlmResponse → candidates o content.parts
-    try:
-        if isinstance(result, LlmResponse):
-            if getattr(result, "content", None) and getattr(result.content, "parts", None):
-                parts = result.content.parts
-                txt = "".join(
-                    getattr(p, "text", "") for p in parts
-                ).strip()
-                if txt:
-                    return txt
-    except Exception:
-        pass
-
-    # 4) dict-style response
-    if isinstance(result, dict):
-        if "output_text" in result:
-            return str(result["output_text"]).strip()
-        if "candidates" in result:
-            try:
-                cand = result["candidates"][0]
-                if "content" in cand and "parts" in cand["content"]:
-                    parts = cand["content"]["parts"]
-                    txt = "".join(
-                        p.get("text", "") for p in parts
-                    ).strip()
-                    if txt:
-                        return txt
-            except Exception:
-                pass
-
-    # 5) candidato directo (nueva forma ADK)
-    if hasattr(result, "output_text"):
-        try:
-            return result.output_text.strip()
-        except Exception:
-            pass
-
-    # 6) fallback vacío
+    # 8) Fallback sin usar str(result) para evitar metadata
     return ""
 
 def main():
@@ -2288,29 +2219,29 @@ def main():
                             role="user",
                             parts=[types.Part(text=user_prompt)]
                         )
-                    
+
+                        # 1) Ejecutar el root agent
                         raw_result = runner.run(
                             user_id=USER_ID,
                             session_id=SESSION_ID,
                             new_message=content
                         )
-                        result = normalize_adk_response(raw_result)
-                    
-                        # Si result es un generador, convertirlo a lista y tomar el final
-                        if hasattr(result, "__iter__") and not hasattr(result, "final_response"):
-                            result = list(result)[-1]
-                    
-                        # === EXTRACCIÓN DE TEXTO CORREGIDA ===
-                        final_text = extract_clean_text(result)
-                    
-                        if not final_text:
-                            # ⚠️ LÍNEA DE DEBUG TEMPORAL ⚠️
-                            debug_info = f"DEBUG INFO: El objeto de respuesta completo fue: {result}"
-                            # st.code es mejor para ver estructuras de datos complejas
-                            message_placeholder.code(debug_info) 
-                            # ⚠️ FIN DEBUG ⚠️
+
+                        # 2) Manejar posible streaming (generador)
+                        if hasattr(raw_result, "__iter__") and not isinstance(raw_result, (str, bytes)):
+                            # Convertir el stream en lista de eventos y tomar el último
+                            events = list(raw_result)
+                            last_event = events[-1] if events else None
+                            final_text = extract_clean_text(last_event)
+                        else:
+                            # Respuesta normal (no streaming)
+                            final_text = extract_clean_text(raw_result)
+
+                        # 3) Fallback si no se pudo extraer texto útil
+                        if not final_text or not final_text.strip():
                             final_text = "❌ No pude generar una respuesta. El agente no retornó texto."
-                    
+
+                        # 4) Mostrar la respuesta
                         message_placeholder.markdown(final_text)
                         full_response = final_text
                     
