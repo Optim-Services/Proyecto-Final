@@ -2112,37 +2112,38 @@ def main():
                     full_response = ""
             
                     try:
-                        # Construir el contenido correctamente
                         content = types.Content(
-                            role="user",
-                            parts=[types.Part(text=user_prompt)]
+                             role="user",
+                             parts=[types.Part(text=user_prompt)]
                         )
-            
-                        # Ejecutar el agente (ADK decide si es streaming o no)
+                     
                         result = runner.run(
-                            user_id=USER_ID,
-                            session_id=SESSION_ID,
-                            new_message=content
+                             user_id=USER_ID,
+                             session_id=SESSION_ID,
+                             new_message=content
                         )
-            
-                        # Si result es un generador, convertirlo a lista
+                     
+                        # Si result es un generador, convertirlo a lista y tomar el final
                         if hasattr(result, "__iter__") and not hasattr(result, "final_response"):
-                            chunks = list(result)
-                            if len(chunks) > 0:
-                                result = chunks[-1]  # último chunk (final)
-            
-                        # Extraer respuesta final
+                            result = list(result)[-1]
+                     
+                         # === EXTRACCIÓN DE TEXTO CORREGIDA ===
                         if hasattr(result, "final_response"):
-                            final_text = result.final_response()
+                           final_text = result.final_response()
+                     
+                        elif hasattr(result, "candidates") and hasattr(result.candidates[0], "content"):
+                            parts = result.candidates[0].content.parts
+                            final_text = "".join([p.text for p in parts if hasattr(p, "text")])
+                     
                         else:
                             final_text = str(result)
-            
+                     
                         if not final_text:
                             final_text = "No pude generar una respuesta."
-            
-                        message_placeholder.markdown(final_text)
-                        full_response = final_text
-            
+                     
+                         message_placeholder.markdown(final_text)
+                         full_response = final_text
+                     
                     except Exception as e:
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
                         message_placeholder.markdown(error_msg)
