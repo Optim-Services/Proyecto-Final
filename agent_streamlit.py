@@ -1676,7 +1676,7 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
 
     raw = ""
     try:
-        raw = llm_response.content.parts[0].text.strip()
+        raw = extract_clean_text(llm_response).strip()
     except:
         raw = ""
 
@@ -1784,25 +1784,10 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
                 parts=[types.Part(text=f"[TRANSFER_TO: ProductAdvisorAgent]\n{raw}")]
             )
         )
-    #
-    try:
-        if llm_response and llm_response.content and llm_response.content.parts:
-            clean = llm_response.content.parts[0].text
    
-            # Evitar mostrar JSON o metadatos
-            if clean.strip().startswith("{"):
-                return None
-   
-            # Forzar retorno limpio
-            llm_response.content = types.Content(
-                role="model",
-                parts=[types.Part(text=clean)]
-            )
-    except:
-        pass
-   
-    return llm_response
-   
+    return raw
+    #return llm_respons
+
 # --- MasterRouter / Orquestador ---
 root_agent = LlmAgent(
     name="MasterRouter",
