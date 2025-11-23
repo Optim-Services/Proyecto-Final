@@ -1918,7 +1918,57 @@ def save_audio_tempfile(audio_bytes: bytes):
     with NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
         tmp_file.write(audio_bytes)
         return tmp_file.name
-       
+
+def extract_clean_text(result):
+    """
+    Extrae únicamente texto útil para el usuario desde un LlmResponse del ADK.
+    Elimina completamente:
+    - metadata
+    - model_version
+    - actions
+    - grounding_metadata
+    - token usage
+    - candidates crudos
+    - pensamientos ("thoughts")
+    - estructuras Content()
+    """
+
+    # Caso 1: tiene respuesta final
+    if hasattr(result, "final_response"):
+        try:
+            return result.final_response().strip()
+        except:
+            pass
+
+    # Caso 2: result.candidates es válido
+    try:
+        if hasattr(result, "candidates") and result.candidates:
+            candidate = result.candidates[0]
+            if hasattr(candidate, "content") and candidate.content:
+                parts = candidate.content.parts
+                text = "".join(
+                    p.text for p in parts
+                    if hasattr(p, "text") and isinstance(p.text, str)
+                ).strip()
+                return text
+    except:
+        pass
+
+    # Caso 3: fallback general
+    try:
+        if hasattr(result, "text"):
+            return result.text.strip()
+    except:
+        pass
+
+    # Caso 4: string crudo
+    try:
+        return str(result)
+    except:
+        return "No pude generar una respuesta."
+
+
+
 def main():
     st.set_page_config(
         page_title="OptimAI",
@@ -2140,15 +2190,7 @@ def main():
                             result = list(result)[-1]
                      
                         # === EXTRACCIÓN DE TEXTO CORREGIDA ===
-                        if hasattr(result, "final_response"):
-                            final_text = result.final_response()
-                     
-                        elif hasattr(result, "candidates") and hasattr(result.candidates[0], "content"):
-                            parts = result.candidates[0].content.parts
-                            final_text = "".join([p.text for p in parts if hasattr(p, "text")])
-                     
-                        else:
-                            final_text = str(result)
+                        final_text = extract_clean_text(result)
                      
                         if not final_text:
                             final_text = "No pude generar una respuesta."
