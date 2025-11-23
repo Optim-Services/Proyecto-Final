@@ -2032,63 +2032,92 @@ def extract_clean_text(result):
     # fallback
     return str(r).strip()
 
+def build_history_prompt(messages):
+    """
+    Construye un prompt con el historial como texto (mismo método del archivo que sí funciona).
+    """
+    if not messages:
+        return ""
+
+    # Tomar SOLO mensajes del usuario
+    user_messages = [m for m in messages if m["role"] == "user"]
+
+    if not user_messages:
+        return messages[-1]["content"]
+
+    last_user = user_messages[-1]
+    idx = messages.index(last_user)
+
+    prev = messages[:idx]
+
+    lines = []
+    for m in prev:
+        role = "Usuario" if m["role"] == "user" else "Asistente"
+        if m["content"]:
+            lines.append(f"{role}: {m['content']}")
+
+    context_block = "\n".join(lines)
+
+    if context_block:
+        return (
+            "Contexto previo:\n"
+            f"{context_block}\n\n"
+            "Solicitud actual del usuario:\n"
+            f"{last_user['content']}"
+        )
+    else:
+        return last_user["content"]
+
+
 def run_root_agent_with_history_stream(messages):
     """
-    Compatible con la versión actual del ADK que NO tiene run_stream().
-    Usa runner.run() que SÍ existe y que devuelve eventos de streaming.
+    Streaming REAL compatible con tu versión del ADK.
+    (Usa runner.run() sin history/agent, igual que agent_adk.py)
     """
 
-    # 1. Convertimos historial
-    history_contents = []
-    for msg in messages:
-        role = "user" if msg["role"] == "user" else "model"
-        history_contents.append(
-            types.Content(role=role, parts=[types.Part(text=msg["content"])])
-        )
+    # 1) Convertir historial a texto
+    query = build_history_prompt(messages)
 
-    # 2. Ejecutar el agente raíz mediante streaming implícito
-    # runner.run() devuelve un stream (eventos) si el agente lo soporta
-    stream = runner.run(
-        user_id=USER_ID,
-        session_id=SESSION_ID,
-        history=history_contents[:-1],      # todo excepto último
-        new_message=history_contents[-1],   # último mensaje del usuario
-        agent=root_agent,
+    content = types.Content(
+        role="user",
+        parts=[types.Part(text=query)]
     )
 
-    # 3. Procesar stream de eventos
-    final_text = ""
-
+    # 2) Ejecutar el agente (runner.run devuelve eventos)
     try:
-        for event in stream:
-            # Formato común de texto dentro del streaming
-            chunk = None
+        events = runner.run(
+            user_id=USER_ID,
+            session_id=SESSION_ID,
+            new_message=content
+        )
 
-            # Caso típico: event tiene atributo text
-            if hasattr(event, "text") and event.text:
-                chunk = event.text
+        full = ""
 
-            # Gemini a veces usa event.delta_text
-            elif hasattr(event, "delta_text") and event.delta_text:
-                chunk = event.delta_text
+        for event in events:
 
-            # Caso ADK: event.output_text
-            elif hasattr(event, "output_text") and event.output_text:
-                chunk = event.output_text
+            # Final response
+            if hasattr(event, "is_final_response") and event.is_final_response():
 
-            # Almacenamos chunk
-            if chunk:
-                final_text += chunk
-                yield chunk
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if getattr(part, "text", None):
+                            text = part.text
 
-    except Exception:
-        # Si algo falla simplemente regresamos lo acumulado
-        if final_text.strip():
-            yield final_text
+                            # dividir en chunks como en tu archivo funcional
+                            sentences = text.split(". ")
+                            chunk = ""
+                            for i, s in enumerate(sentences):
+                                chunk += s + ". "
+                                if len(chunk) > 100 or i == len(sentences) - 1:
+                                    yield chunk.strip()
+                                    full += chunk
+                                    chunk = ""
+                return
 
-    # 4. Retornar resultado final si no hubo chunks
-    if final_text.strip():
-        yield final_text
+        yield "No recibí una respuesta final del agente."
+
+    except Exception as e:
+        yield f"⚠️ Ocurrió un error al ejecutar el agente: {e}"
 
 
 def main():
