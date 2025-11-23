@@ -1664,45 +1664,7 @@ core_parallel_agent = ParallelAgent(
     ],
 )
 
-# --- MasterRouter / Orquestador ---
-root_agent = LlmAgent(
-    name="MasterRouter",
-    model="gemini-2.5-flash",
-    description="Enruta inteligentemente las solicitudes del usuario al agente especialista apropiado.",
-    instruction=(
-        "Eres un orquestador con subagentes.\n"
-        "Tienes disponibles estos agentes:\n"
-        "- CalendarAgent: todo lo relacionado con eventos de calendario, agenda, CRM de reuniones.\n"
-        "- ProductAdvisorAgent: análisis de productos/servicios vendidos, inversión por cliente y recomendaciones comerciales.\n"
-        "- ConversationAgent: cualquier otra consulta general.\n"
-        "- CoreParallelAgent: úsalo cuando la pregunta mezcle claramente temas de calendario y de productos.\n\n"
-        "Instrucciones de ruteo:\n"
-        "1. **MANEJO DE TRANSCRIPCIONES DE VOZ**: Si el texto incluye 'TRANSCRIPCIÓN DE NOTA DE VOZ:'\n"
-        "   - Extrae la información: fecha, hora, persona, empresa, si es reunión, etc.\n"
-        "   - Si hay fecha/hora y es sobre agendar → transfiere a 'CalendarAgent' con la instrucción específica.\n"
-        "   - Si hay productos/servicios → transfiere a 'ProductAdvisorAgent'.\n"
-        "   - Si es reunión → menciona que se detectó diarización y transfiere al agente adecuado.\n"
-        "2. Si es sobre eventos, reuniones, agenda (sin ser transcripción) → transfiere a 'CalendarAgent'.\n"
-        "3. Si es sobre productos, ventas, inversión → transfiere a 'ProductAdvisorAgent'.\n"
-        "4. Si mezcla calendario + productos → transfiere a 'CoreParallelAgent'.\n"
-        "5. Cualquier otro caso → transfiere a 'ConversationAgent'.\n\n"
-        "IMPORTANTE: Procesa las transcripciones de voz tú mismo y transfiere directamente al agente final. No uses subagentes para voz."
-    ),
-    sub_agents=[
-        conversation_agent,
-        core_parallel_agent,
-        voice_sequential_agent,
-    ],
-    
-    disallow_transfer_to_peers=False,
-    disallow_transfer_to_parent=True,
-    after_model_callback=master_after,
-    generate_content_config=types.GenerateContentConfig(
-        temperature=0.3,
-        top_p=0.9,
-    ),
-)
-
+# --- Master after ---
 def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
     """
     MasterRouter AFTER callback para:
@@ -1841,7 +1803,44 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
    
     return llm_response
    
-
+# --- MasterRouter / Orquestador ---
+root_agent = LlmAgent(
+    name="MasterRouter",
+    model="gemini-2.5-flash",
+    description="Enruta inteligentemente las solicitudes del usuario al agente especialista apropiado.",
+    instruction=(
+        "Eres un orquestador con subagentes.\n"
+        "Tienes disponibles estos agentes:\n"
+        "- CalendarAgent: todo lo relacionado con eventos de calendario, agenda, CRM de reuniones.\n"
+        "- ProductAdvisorAgent: análisis de productos/servicios vendidos, inversión por cliente y recomendaciones comerciales.\n"
+        "- ConversationAgent: cualquier otra consulta general.\n"
+        "- CoreParallelAgent: úsalo cuando la pregunta mezcle claramente temas de calendario y de productos.\n\n"
+        "Instrucciones de ruteo:\n"
+        "1. **MANEJO DE TRANSCRIPCIONES DE VOZ**: Si el texto incluye 'TRANSCRIPCIÓN DE NOTA DE VOZ:'\n"
+        "   - Extrae la información: fecha, hora, persona, empresa, si es reunión, etc.\n"
+        "   - Si hay fecha/hora y es sobre agendar → transfiere a 'CalendarAgent' con la instrucción específica.\n"
+        "   - Si hay productos/servicios → transfiere a 'ProductAdvisorAgent'.\n"
+        "   - Si es reunión → menciona que se detectó diarización y transfiere al agente adecuado.\n"
+        "2. Si es sobre eventos, reuniones, agenda (sin ser transcripción) → transfiere a 'CalendarAgent'.\n"
+        "3. Si es sobre productos, ventas, inversión → transfiere a 'ProductAdvisorAgent'.\n"
+        "4. Si mezcla calendario + productos → transfiere a 'CoreParallelAgent'.\n"
+        "5. Cualquier otro caso → transfiere a 'ConversationAgent'.\n\n"
+        "IMPORTANTE: Procesa las transcripciones de voz tú mismo y transfiere directamente al agente final. No uses subagentes para voz."
+    ),
+    sub_agents=[
+        conversation_agent,
+        core_parallel_agent,
+        voice_sequential_agent,
+    ],
+    
+    disallow_transfer_to_peers=False,
+    disallow_transfer_to_parent=True,
+    after_model_callback=master_after,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.3,
+        top_p=0.9,
+    ),
+)
 
 # ============================================
 # 8. RUNNER Y HELPERS PARA EJECUTAR EL AGENTE
