@@ -2034,45 +2034,61 @@ def extract_clean_text(result):
 
 def run_root_agent_with_history_stream(messages):
     """
-    Ejecuta el root_agent con historial, devolviendo chunks de texto (streaming).
-    Replica el comportamiento del archivo agent_adk.py que sí funciona en local.
+    Compatible con la versión actual del ADK que NO tiene run_stream().
+    Usa runner.run() que SÍ existe y que devuelve eventos de streaming.
     """
-    # 1. Convertir historial a Content[]
+
+    # 1. Convertimos historial
     history_contents = []
     for msg in messages:
-        if msg["role"] == "user":
-            history_contents.append(
-                types.Content(role="user", parts=[types.Part(text=msg["content"])])
-            )
-        else:
-            history_contents.append(
-                types.Content(role="model", parts=[types.Part(text=msg["content"])])
-            )
+        role = "user" if msg["role"] == "user" else "model"
+        history_contents.append(
+            types.Content(role=role, parts=[types.Part(text=msg["content"])])
+        )
 
-    # 2. Enviar mensaje al root_agent usando streaming
-    stream = runner.run_stream(
+    # 2. Ejecutar el agente raíz mediante streaming implícito
+    # runner.run() devuelve un stream (eventos) si el agente lo soporta
+    stream = runner.run(
         user_id=USER_ID,
         session_id=SESSION_ID,
-        new_message=history_contents[-1],  
-        history=history_contents[:-1],      
-        agent=root_agent
+        history=history_contents[:-1],      # todo excepto último
+        new_message=history_contents[-1],   # último mensaje del usuario
+        agent=root_agent,
     )
 
-    # 3. Capturar los chunks
+    # 3. Procesar stream de eventos
     final_text = ""
-    for event in stream:
-        try:
+
+    try:
+        for event in stream:
+            # Formato común de texto dentro del streaming
+            chunk = None
+
+            # Caso típico: event tiene atributo text
             if hasattr(event, "text") and event.text:
-                yield event.text
-                final_text += event.text
+                chunk = event.text
 
-        except Exception:
-            continue
+            # Gemini a veces usa event.delta_text
+            elif hasattr(event, "delta_text") and event.delta_text:
+                chunk = event.delta_text
 
-    # 4. Devolver el texto final al terminar
+            # Caso ADK: event.output_text
+            elif hasattr(event, "output_text") and event.output_text:
+                chunk = event.output_text
+
+            # Almacenamos chunk
+            if chunk:
+                final_text += chunk
+                yield chunk
+
+    except Exception:
+        # Si algo falla simplemente regresamos lo acumulado
+        if final_text.strip():
+            yield final_text
+
+    # 4. Retornar resultado final si no hubo chunks
     if final_text.strip():
         yield final_text
-
 
 
 def main():
