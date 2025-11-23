@@ -2129,7 +2129,7 @@ def main():
                      
                          # === EXTRACCIÓN DE TEXTO CORREGIDA ===
                         if hasattr(result, "final_response"):
-                           final_text = result.final_response()
+                            final_text = result.final_response()
                      
                         elif hasattr(result, "candidates") and hasattr(result.candidates[0], "content"):
                             parts = result.candidates[0].content.parts
