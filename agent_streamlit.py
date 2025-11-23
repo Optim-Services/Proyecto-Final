@@ -2105,33 +2105,43 @@ def main():
                 {"role": "user", "content": user_display_content or user_prompt}
             )
 
-            # 2) Ejecutar agente sin streaming
+            # 2) Ejecutar el agente sin streaming visible
             with st.chat_message("assistant"):
                 with st.spinner("Analizando solicitud..."):
                     message_placeholder = st.empty()
                     full_response = ""
             
                     try:
+                        # Construir el contenido correctamente
                         content = types.Content(
                             role="user",
                             parts=[types.Part(text=user_prompt)]
                         )
             
-                        # Ejecución SIN streaming garantizada
+                        # Ejecutar el agente (ADK decide si es streaming o no)
                         result = runner.run(
                             user_id=USER_ID,
                             session_id=SESSION_ID,
-                            new_message=content,
-                            stream=False   # ← FORZAMOS NO STREAMING
+                            new_message=content
                         )
             
-                        # Forzar a convertir generadores → lista → contenido final
-                        if hasattr(result, "__iter__") and not isinstance(result, LlmResponse):
-                            result = list(result)[-1]  # último chunk
+                        # Si result es un generador, convertirlo a lista
+                        if hasattr(result, "__iter__") and not hasattr(result, "final_response"):
+                            chunks = list(result)
+                            if len(chunks) > 0:
+                                result = chunks[-1]  # último chunk (final)
             
-                        final_text = result.final_response() if hasattr(result, "final_response") else str(result)
-                        full_response = final_text
+                        # Extraer respuesta final
+                        if hasattr(result, "final_response"):
+                            final_text = result.final_response()
+                        else:
+                            final_text = str(result)
+            
+                        if not final_text:
+                            final_text = "No pude generar una respuesta."
+            
                         message_placeholder.markdown(final_text)
+                        full_response = final_text
             
                     except Exception as e:
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
