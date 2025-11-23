@@ -1798,7 +1798,7 @@ root_agent = LlmAgent(
     name="MasterRouter",
     model="gemini-2.5-flash",
     description="Enruta inteligentemente las solicitudes del usuario al agente especialista apropiado.",
-    instruction=(
+    instructions=(
         "Eres un orquestador con subagentes.\n"
         "Tienes disponibles estos agentes:\n"
         "- CalendarAgent: todo lo relacionado con eventos de calendario, agenda, CRM de reuniones.\n"
@@ -1818,6 +1818,8 @@ root_agent = LlmAgent(
         "IMPORTANTE: Procesa las transcripciones de voz tú mismo y transfiere directamente al agente final. No uses subagentes para voz."
     ),
     sub_agents=[
+        calendar_agent,
+        product_agent,  
         conversation_agent,
         core_parallel_agent,
         voice_sequential_agent,
