@@ -1769,11 +1769,22 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
 
     # ---- CALENDAR AGENT ----
     calendar_keywords = [
-        "evento", "agenda", "calendario", "reunión", "reunion", "cita",
-        "mostrar eventos", "mis eventos", "lista de eventos",
-        "qué eventos tengo", "sincroniza", "sincronizar",
-        "sincronización", "sync", "actualiza evento", "modifica evento"
-    ]
+    "evento", "eventos", "agenda", "calendario", "reunión", "reunion", "cita",
+
+    "mostrar eventos", "muéstrame eventos", "mis eventos",
+    "lista de eventos", "qué eventos tengo", "que eventos tengo",
+
+    # Variantes reales que dispara el usuario
+    "sincroniza", "sincronizar", "sincroniza eventos",
+    "sincronizar eventos", "sincronización",
+    "sync", "sync eventos",
+    "actualiza agenda", "actualiza los eventos",
+    "actualiza evento", "actualiza eventos",
+    "sincroniza mi calendario", "sincroniza calendario",
+
+    # Para el extractor → voice router → calendar
+    "sincronizar los eventos", "sincronizar mis eventos",
+]
 
     if any(k in raw_l for k in calendar_keywords):
         return LlmResponse(
