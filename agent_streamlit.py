@@ -1905,6 +1905,79 @@ def save_audio_tempfile(audio_bytes: bytes):
         tmp_file.write(audio_bytes)
         return tmp_file.name
 
+def normalize_adk_response(result):
+    """
+    Normaliza cualquier tipo de respuesta del ADK a un formato compatible para extract_clean_text.
+    """
+
+    # 1. Si es LlmResponse → devolver tal cual
+    if isinstance(result, LlmResponse):
+        return result
+
+    # 2. Si es dict con output_text → convertir a LlmResponse sintético
+    if isinstance(result, dict):
+        if "output_text" in result:
+            return LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part(text=result["output_text"])]
+                )
+            )
+        
+        if "candidates" in result:
+            try:
+                text = ""
+                parts = result["candidates"][0]["content"]["parts"]
+                for p in parts:
+                    if "text" in p:
+                        text += p["text"]
+                return LlmResponse(
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part(text=text)]
+                    )
+                )
+            except:
+                pass
+
+    # 3. SequentialAgentOutput → tomar el último mensaje
+    if hasattr(result, "final_response"):
+        return result.final_response()
+
+    # 4. ParallelAgentOutput → concatenar respuestas de subagentes
+    if hasattr(result, "responses"):
+        try:
+            texts = []
+            for r in result.responses:
+                t = extract_clean_text(r)
+                if t:
+                    texts.append(t)
+            return LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part(text="\n\n".join(texts))]
+                )
+            )
+        except:
+            pass
+
+    # 5. fallback → convertir a string PLANO (pero sin metadata)
+    try:
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text=str(result))]
+            )
+        )
+    except:
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text="")]
+            )
+        )
+
+
 def extract_clean_text(result):
 
     # 1) final_response
@@ -2170,6 +2243,7 @@ def main():
                              session_id=SESSION_ID,
                              new_message=content
                         )
+                        result = normalize_adk_response(raw_result)
                      
                         # Si result es un generador, convertirlo a lista y tomar el final
                         if hasattr(result, "__iter__") and not hasattr(result, "final_response"):
