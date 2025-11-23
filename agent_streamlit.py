@@ -2127,7 +2127,7 @@ def main():
                         if hasattr(result, "__iter__") and not hasattr(result, "final_response"):
                             result = list(result)[-1]
                      
-                         # === EXTRACCIÓN DE TEXTO CORREGIDA ===
+                        # === EXTRACCIÓN DE TEXTO CORREGIDA ===
                         if hasattr(result, "final_response"):
                             final_text = result.final_response()
                      
