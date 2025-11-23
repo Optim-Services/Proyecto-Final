@@ -2035,7 +2035,7 @@ def extract_clean_text(result):
 def main():
     st.set_page_config(
         page_title="OptimAI",
-        page_icon="🤖",  # Usé un ícono más común por si el original falla
+        page_icon="🤖",
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -2053,51 +2053,48 @@ def main():
         unsafe_allow_html=True
     )
 
-    # Historial persistente con mejor manejo
+    # Inicializar historial
     if "messages" not in st.session_state:
         st.session_state["messages"] = [
             {
-                "role": "assistant", 
+                "role": "assistant",
                 "content": "Hola, soy tu agente de calendario y CRM. ¿Qué necesitas hacer hoy? 😊",
             }
         ]
 
-    # Control para evitar duplicados en renderizado
     if "last_processed_input" not in st.session_state:
         st.session_state["last_processed_input"] = ""
 
-    # -------------------------
-    # Sidebar: SOLO audio
-    # -------------------------
-    audio_bytes_from_recorder: Optional[bytes] = None
+    # -----------------------------
+    # Sidebar: audio / grabación
+    # -----------------------------
+    audio_bytes_from_recorder = None
     send_audio = False
 
     with st.sidebar:
         st.subheader("🎤 Nota de voz al agente")
 
         st.markdown(
-            "Puedes grabar una nota de voz o subir un archivo .wav con tus instrucciones o una reunión breve.\n\n"
+            "Puedes grabar una nota de voz o subir un archivo .wav con tus instrucciones.\n\n"
             "Ejemplos:\n"
             "- \"Agenda una reunión con Tecnoflex el martes a las 11 am\"\n"
-            "- \"Resumen de la llamada con el cliente sobre sus necesidades\""
+            "- \"Resumen de la llamada con el cliente\""
         )
 
-        # Tabs para grabación o subida de archivo
         tab1, tab2 = st.tabs(["🎙️ Grabar", "📁 Subir .wav"])
-        
+
         with tab1:
             recording = mic_recorder(
                 start_prompt="🎙️ Iniciar grabación",
                 stop_prompt="⏹️ Detener grabación",
                 key="mic_recorder_widget_sidebar",
             )
-        
+
         with tab2:
             uploaded_file = st.file_uploader(
                 "Sube archivo de audio (.wav)",
                 type=["wav"],
                 key="wav_file_uploader",
-                help="Selecciona un archivo .wav para transcribir"
             )
 
         if recording and "bytes" in recording and recording["bytes"]:
@@ -2108,10 +2105,9 @@ def main():
                 use_container_width=True,
                 key="send_recorded_audio_sidebar",
             )
-        
-        # Procesar archivo subido
-        audio_bytes_from_file: Optional[bytes] = None
-        if uploaded_file is not None:
+
+        audio_bytes_from_file = None
+        if uploaded_file:
             audio_bytes_from_file = uploaded_file.read()
             st.audio(audio_bytes_from_file, format="audio/wav")
             send_audio = st.button(
@@ -2119,44 +2115,41 @@ def main():
                 use_container_width=True,
                 key="send_uploaded_audio_sidebar",
             )
-        
-        # Combinar ambos orígenes de audio
+
         if audio_bytes_from_file:
             audio_bytes_from_recorder = audio_bytes_from_file
 
-    # -------------------------
-    # Mostrar historial con clave única para evitar duplicados
-    # -------------------------
+    # -----------------------------
+    # Mostrar historial
+    # -----------------------------
     chat_container = st.container()
-    
+
     with chat_container:
-        for idx, msg in enumerate(st.session_state["messages"]):
-            # st.chat_message no acepta 'key', usamos solo el role
+        for msg in st.session_state["messages"]:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"], unsafe_allow_html=True)
 
-    # -------------------------
-    # Entrada de texto con control de duplicados
-    # -------------------------
-    user_prompt: Optional[str] = None
-    user_display_content: Optional[str] = None
+    # -----------------------------
+    # Capturar texto del usuario
+    # -----------------------------
+    user_prompt = None
+    user_display_content = None
 
     text_prompt = st.chat_input("Escribe tu instrucción o pregunta aquí…", key="main_chat_input")
-    
-    # Evitar procesar el mismo input múltiples veces
+
     if text_prompt and text_prompt != st.session_state["last_processed_input"]:
         user_prompt = text_prompt
         user_display_content = text_prompt
         st.session_state["last_processed_input"] = text_prompt
 
-    # -------------------------
-    # Transcripción de audio (AssemblyAI)
-    # -------------------------
+    # -----------------------------
+    # Transcripción con AssemblyAI
+    # -----------------------------
     if not user_prompt and send_audio:
         if not ASSEMBLYAI_API_KEY:
-            st.error("No se puede transcribir: falta `ASSEMBLYAI_API_KEY` en el entorno.")
+            st.error("Falta `ASSEMBLYAI_API_KEY` en el entorno.")
         elif not audio_bytes_from_recorder:
-            st.warning("No hay audio capturado. Graba de nuevo por favor.")
+            st.warning("No hay audio capturado. Intenta nuevamente.")
         else:
             tmp_path = None
             try:
@@ -2182,102 +2175,73 @@ def main():
                             user_display_content = f"🎤 {text}"
                             st.session_state["last_processed_input"] = f"audio_{hash(text) % 10000}"
                         else:
-                            st.info("La transcripción no devolvió texto interpretable. Intenta de nuevo.")
-                            
+                            st.info("La transcripción no devolvió texto interpretable.")
+
             except Exception as e:
-                error_msg = str(e)
-                if "AssemblyAI" in error_msg or "assemblyai" in error_msg.lower():
-                    st.error(f"❌ Error en AssemblyAI: {e}")
-                else:
-                    st.error(f"❌ Error inesperado: {e}")
+                st.error(f"❌ Error inesperado: {e}")
             finally:
                 if tmp_path and os.path.exists(tmp_path):
                     try:
                         os.remove(tmp_path)
-                    except Exception:
+                    except:
                         pass
 
-    # -------------------------
-    # Ejecución del agente con streaming
-    # -------------------------
+    # -----------------------------
+    # EJECUCIÓN DEL AGENTE (STREAMING)
+    # -----------------------------
     if user_prompt:
-        # Validación de seguridad
+
+        # --- Validación de seguridad ---
         if is_suspicious_prompt(user_prompt):
             warning = (
-                "Por seguridad no puedo ayudar con solicitudes relacionadas con contraseñas, claves, tokens, "
-                "secretos, configuraciones internas o con modificar las instrucciones internas del agente. 🔒\n\n"
+                "Por seguridad no puedo ayudar con solicitudes relacionadas con claves, tokens o "
+                "secretos. 🔒\n\n"
                 "Pero con gusto puedo ayudarte con tu calendario, tus clientes o análisis de productos. 📅📊"
             )
-            
-            # Agregar mensaje del usuario
-            st.session_state["messages"].append(
-                {"role": "user", "content": user_display_content or user_prompt}
-            )
-            
-            # Mostrar advertencia
-            with st.chat_message("assistant"):
-                st.markdown(warning)
-            
-            st.session_state["messages"].append({"role": "assistant", "content": warning})
-            
-            # Limpiar y rerun
-            st.session_state["last_processed_input"] = ""
-            st.rerun()
-            
-        else:
-            # 1) Agregar mensaje del usuario al historial inmediatamente
+
             st.session_state["messages"].append(
                 {"role": "user", "content": user_display_content or user_prompt}
             )
 
-            # 2) Ejecutar el agente sin streaming visible
+            with st.chat_message("assistant"):
+                st.markdown(warning)
+
+            st.session_state["messages"].append({"role": "assistant", "content": warning})
+
+            st.session_state["last_processed_input"] = ""
+            st.rerun()
+
+        # --- Flujo normal ---
+        else:
+            st.session_state["messages"].append(
+                {"role": "user", "content": user_display_content or user_prompt}
+            )
+
             with st.chat_message("assistant"):
                 with st.spinner("Analizando solicitud..."):
                     message_placeholder = st.empty()
                     full_response = ""
-            
+
                     try:
-                        content = types.Content(
-                            role="user",
-                            parts=[types.Part(text=user_prompt)]
-                        )
+                        for chunk in run_root_agent_with_history_stream(st.session_state["messages"]):
+                            full_response += chunk + " "
+                            message_placeholder.markdown(full_response + "▌")
 
-                        raw_result = runner.run(
-                        user_id=USER_ID,
-                        session_id=SESSION_ID,
-                        new_message=content
-                        )
-                     
-                        normalized = normalize_adk_response(raw_result)
-                        final_text = extract_clean_text(normalized)
-                     
-                        if not final_text or not final_text.strip():
-                            final_text = "❌ No pude generar una respuesta. El agente no devolvió texto útil."
-
-                        # 3) Fallback si no se pudo extraer texto útil
-                        if not final_text or not final_text.strip():
-                            final_text = "❌ No pude generar una respuesta. El agente no retornó texto."
-
-                        # 4) Mostrar la respuesta
-                        message_placeholder.markdown(final_text)
-                        full_response = final_text
+                        message_placeholder.markdown(full_response)
 
                     except Exception as e:
-                        # CORRECCIÓN: Este bloque se ejecuta cuando hay una excepción real (API, conexión, etc.)
-                        error_msg = f"⚠️ Error al generar respuesta (EXCEPCIÓN): {e}"
+                        error_msg = f"⚠️ Error al generar respuesta: {e}"
                         message_placeholder.markdown(error_msg)
                         full_response = error_msg
-                       
-            # 3) Guardar respuesta completa en historial
+
             st.session_state["messages"].append(
                 {"role": "assistant", "content": full_response.strip()}
             )
-            
-            # Limpiar el input procesado
+
             st.session_state["last_processed_input"] = ""
-            
-            # Forzar rerun para actualizar la UI
             st.rerun()
+
+
 
 
 _sessions_to_close = []
