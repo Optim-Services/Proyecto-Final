@@ -2032,6 +2032,49 @@ def extract_clean_text(result):
     # fallback
     return str(r).strip()
 
+def run_root_agent_with_history_stream(messages):
+    """
+    Ejecuta el root_agent con historial, devolviendo chunks de texto (streaming).
+    Replica el comportamiento del archivo agent_adk.py que sí funciona en local.
+    """
+    # 1. Convertir historial a Content[]
+    history_contents = []
+    for msg in messages:
+        if msg["role"] == "user":
+            history_contents.append(
+                types.Content(role="user", parts=[types.Part(text=msg["content"])])
+            )
+        else:
+            history_contents.append(
+                types.Content(role="model", parts=[types.Part(text=msg["content"])])
+            )
+
+    # 2. Enviar mensaje al root_agent usando streaming
+    stream = runner.run_stream(
+        user_id=USER_ID,
+        session_id=SESSION_ID,
+        new_message=history_contents[-1],  
+        history=history_contents[:-1],      
+        agent=root_agent
+    )
+
+    # 3. Capturar los chunks
+    final_text = ""
+    for event in stream:
+        try:
+            if hasattr(event, "text") and event.text:
+                yield event.text
+                final_text += event.text
+
+        except Exception:
+            continue
+
+    # 4. Devolver el texto final al terminar
+    if final_text.strip():
+        yield final_text
+
+
+
 def main():
     st.set_page_config(
         page_title="OptimAI",
