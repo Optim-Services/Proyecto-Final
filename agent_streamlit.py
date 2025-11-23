@@ -2247,7 +2247,7 @@ def main():
     # -------------------------
     # Ejecución del agente con streaming
     # -------------------------
-    if user_prompt:
+   if user_prompt:
         # Validación de seguridad
         if is_suspicious_prompt(user_prompt):
             warning = (
@@ -2270,62 +2270,62 @@ def main():
             # Limpiar y rerun
             st.session_state["last_processed_input"] = ""
             st.rerun()
-           
+            
         else:
-            # 1) Agregar mensaje del usuario al historial inmediatamente
-            st.session_state["messages"].append(
-                {"role": "user", "content": user_display_content or user_prompt}
-            )
+            # 1) Agregar mensaje del usuario al historial inmediatamente
+            st.session_state["messages"].append(
+                {"role": "user", "content": user_display_content or user_prompt}
+            )
 
-            # 2) Ejecutar el agente sin streaming visible
-            with st.chat_message("assistant"):
-                with st.spinner("Analizando solicitud..."):
-                    message_placeholder = st.empty()
-                    full_response = ""
-            
-                    try:
-                        content = types.Content(
-                             role="user",
-                             parts=[types.Part(text=user_prompt)]
-                        )
-                     
-                        raw_result = runner.run(
-                             user_id=USER_ID,
-                             session_id=SESSION_ID,
-                             new_message=content
-                        )
-                        result = normalize_adk_response(raw_result)
-                     
-                        # Si result es un generador, convertirlo a lista y tomar el final
-                        if hasattr(result, "__iter__") and not hasattr(result, "final_response"):
-                            result = list(result)[-1]
-                     
-                        # === EXTRACCIÓN DE TEXTO CORREGIDA ===
-                        final_text = extract_clean_text(result)
-                     
-                        if not final_text:
-                            # Ya no se usa 'e' aquí, se evita el error 'referenced before assignment'
-                            final_text = "❌ No pude generar una respuesta. El agente no retornó texto."
-                     
-                        message_placeholder.markdown(final_text)
-                        full_response = final_text
-                     
-                    except Exception as e:
-                        # Este bloque usa 'e' correctamente
-                        error_msg = f"⚠️ Error al generar respuesta (EXCEPCIÓN): {e}"
-                        message_placeholder.markdown(error_msg)
-                        full_response = error_msg
-                        
-            # 3) Guardar respuesta completa en historial
-            st.session_state["messages"].append(
-                {"role": "assistant", "content": full_response.strip()}
-            )
-            
-            # Limpiar el input procesado
-            st.session_state["last_processed_input"] = ""
-            
-            # Forzar rerun para actualizar la UI
-            st.rerun()
+            # 2) Ejecutar el agente sin streaming visible
+            with st.chat_message("assistant"):
+                with st.spinner("Analizando solicitud..."):
+                    message_placeholder = st.empty()
+                    full_response = ""
+            
+                    try:
+                        content = types.Content(
+                            role="user",
+                            parts=[types.Part(text=user_prompt)]
+                        )
+                    
+                        raw_result = runner.run(
+                            user_id=USER_ID,
+                            session_id=SESSION_ID,
+                            new_message=content
+                        )
+                        result = normalize_adk_response(raw_result)
+                    
+                        # Si result es un generador, convertirlo a lista y tomar el final
+                        if hasattr(result, "__iter__") and not hasattr(result, "final_response"):
+                            result = list(result)[-1]
+                    
+                        # === EXTRACCIÓN DE TEXTO CORREGIDA ===
+                        final_text = extract_clean_text(result)
+                    
+                        if not final_text:
+                            # CORRECCIÓN 1: No se usa 'e' aquí, se evita el error 'referenced before assignment'
+                            final_text = "❌ No pude generar una respuesta. El agente no retornó texto."
+                    
+                        message_placeholder.markdown(final_text)
+                        full_response = final_text
+                    
+                    except Exception as e:
+                        # CORRECCIÓN 2: Este bloque usa 'e' correctamente y muestra el error real
+                        error_msg = f"⚠️ Error al generar respuesta (EXCEPCIÓN): {e}"
+                        message_placeholder.markdown(error_msg)
+                        full_response = error_msg
+                        
+            # 3) Guardar respuesta completa en historial
+            st.session_state["messages"].append(
+                {"role": "assistant", "content": full_response.strip()}
+            )
+            
+            # Limpiar el input procesado
+            st.session_state["last_processed_input"] = ""
+            
+            # Forzar rerun para actualizar la UI
+            st.rerun()
 
 _sessions_to_close = []
 
