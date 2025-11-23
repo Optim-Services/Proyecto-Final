@@ -2270,7 +2270,7 @@ def main():
             # Limpiar y rerun
             st.session_state["last_processed_input"] = ""
             st.rerun()
-        a    
+           
         else:
             # 1) Agregar mensaje del usuario al historial inmediatamente
             st.session_state["messages"].append(
