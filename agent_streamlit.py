@@ -1906,69 +1906,53 @@ def save_audio_tempfile(audio_bytes: bytes):
         return tmp_file.name
 
 def extract_clean_text(result):
-    """
-    Extrae texto limpio desde cualquier tipo de respuesta generada por ADK / Gemini.
-    Compatible con:
-    - LlmResponse
-    - GenerateContentResponse
-    - dict style (root agent)
-    - objetos con output_text
-    - objetos con candidates
-    """
 
-    # 1) ADK LlmResponse clásico con final_response()
+    # 1) final_response
     if hasattr(result, "final_response"):
         try:
             txt = result.final_response()
-            if isinstance(txt, str) and txt.strip():
+            if isinstance(txt, str):
                 return txt.strip()
         except:
             pass
 
-    # 2) Gemini GenerateContentResponse (candidates)
+    # 2) LlmResponse → candidates
     try:
         if hasattr(result, "candidates") and result.candidates:
             cand = result.candidates[0]
             if hasattr(cand, "content") and cand.content:
                 parts = cand.content.parts
-                text = "".join(
-                    p.text for p in parts
-                    if hasattr(p, "text") and isinstance(p.text, str)
+                txt = "".join(
+                    p.text for p in parts 
+                    if hasattr(p, "text")
                 ).strip()
-                if text:
-                    return text
+                if txt:
+                    return txt
     except:
         pass
 
-    # 3) Estructura dict-style ADK
-    try:
-        if isinstance(result, dict):
-            if "output_text" in result:
-                return str(result["output_text"]).strip()
+    # 3) dict-style response
+    if isinstance(result, dict):
+        if "output_text" in result:
+            return str(result["output_text"]).strip()
+        if "candidates" in result:
+            cand = result["candidates"][0]
+            if "content" in cand and "parts" in cand["content"]:
+                parts = cand["content"]["parts"]
+                txt = "".join(
+                    p.get("text", "") for p in parts
+                ).strip()
+                if txt:
+                    return txt
 
-            if "candidates" in result:
-                cand = result["candidates"][0]
-                if "content" in cand and "parts" in cand["content"]:
-                    parts = cand["content"]["parts"]
-                    txt = "".join(
-                        p.get("text", "")
-                        for p in parts
-                        if isinstance(p, dict)
-                    ).strip()
-                    if txt:
-                        return txt
-    except:
-        pass
-
-    # 4) output_text directo (ADK nuevas versiones)
+    # 4) output_text directo (Google ADK nuevas versiones)
     if hasattr(result, "output_text"):
         try:
-            if result.output_text.strip():
-                return result.output_text.strip()
+            return result.output_text.strip()
         except:
             pass
 
-    # 5) fallback ultra seguro
+    # 5) Fallback limpio (NO poner str(result))
     return ""
 
 def main():
