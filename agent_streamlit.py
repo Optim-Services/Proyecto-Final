@@ -1912,91 +1912,108 @@ def save_audio_tempfile(audio_bytes: bytes):
 
 def normalize_adk_response(result):
     """
-    Normaliza cualquier tipo de respuesta del ADK a un LlmResponse consistente
-    para que extract_clean_text pueda extraer el texto correctamente.
-    Siempre devuelve un LlmResponse (aunque el texto esté vacío).
+    Normaliza la respuesta del ADK a un LlmResponse limpio SIN metadata.
+    Siempre devuelve un LlmResponse que contenga solo texto legible.
     """
-    # 1) Si ya es LlmResponse → devolver tal cual
+
+    # -----------------------------
+    # 1) Si ya es LlmResponse
+    # -----------------------------
     try:
         if isinstance(result, LlmResponse):
-            return result
-    except Exception:
-        # LlmResponse puede no estar definido en ciertos contextos, ignorar
+            # Extraer texto limpio
+            txt = extract_clean_text(result)
+            return LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part(text=txt)]
+                )
+            )
+    except:
         pass
 
-    # 2) Si es string → envolver en LlmResponse
+    # -----------------------------
+    # 2) Si es string → envolverlo limpio
+    # -----------------------------
     if isinstance(result, str):
         return LlmResponse(
             content=types.Content(
                 role="model",
-                parts=[types.Part(text=result)]
+                parts=[types.Part(text=result.strip())]
             )
         )
 
-    # 3) Si es dict con output_text → envolver
+    # -----------------------------
+    # 3) Si es dict → buscar texto
+    # -----------------------------
     if isinstance(result, dict):
+
+        # a) Intento 1: "output_text"
         if "output_text" in result:
             return LlmResponse(
                 content=types.Content(
                     role="model",
-                    parts=[types.Part(text=str(result["output_text"]))]
+                    parts=[types.Part(text=str(result["output_text"]).strip())]
                 )
             )
 
-        if "candidates" in result:
-            try:
-                parts = result["candidates"][0]["content"]["parts"]
-                text = "".join(p.get("text", "") for p in parts)
-                return LlmResponse(
-                    content=types.Content(
-                        role="model",
-                        parts=[types.Part(text=text)]
-                    )
-                )
-            except Exception:
-                pass
-
-    # 4) SequentialAgentOutput → tomar final_response y envolver si es string
-    if hasattr(result, "final_response"):
+        # b) Intento 2: candidates → parts → text
         try:
-            txt = result.final_response()
-            if isinstance(txt, LlmResponse):
-                return txt
-            if isinstance(txt, str):
-                return LlmResponse(
-                    content=types.Content(
-                        role="model",
-                        parts=[types.Part(text=txt)]
-                    )
-                )
-        except Exception:
-            pass
+            cand = result.get("candidates", [{}])[0]
+            parts = cand.get("content", {}).get("parts", [])
+            text = "".join(p.get("text", "") for p in parts).strip()
 
-    # 5) ParallelAgentOutput → concatenar respuestas de subagentes
-    if hasattr(result, "responses"):
-        try:
-            texts = []
-            for r in result.responses:
-                t = extract_clean_text(r)
-                if t:
-                    texts.append(t)
             return LlmResponse(
                 content=types.Content(
                     role="model",
-                    parts=[types.Part(text="\n\n".join(texts))]
+                    parts=[types.Part(text=text)]
                 )
             )
-        except Exception:
+        except:
             pass
 
-    # 6) fallback → devolver LlmResponse vacío (evita devolver estructuras no manejadas)
+    # -----------------------------
+    # 4) SequentialAgentOutput
+    # -----------------------------
+    if hasattr(result, "final_response"):
+        try:
+            txt = result.final_response()
+            txt = extract_clean_text(txt)
+            return LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part(text=txt)]
+                )
+            )
+        except:
+            pass
+
+    # -----------------------------
+    # 5) ParallelAgentOutput
+    # -----------------------------
+    if hasattr(result, "responses"):
+        texts = []
+        for r in result.responses:
+            txt = extract_clean_text(r)
+            if txt:
+                texts.append(txt)
+
+        return LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part(text="\n\n".join(texts))]
+            )
+        )
+
+    # -----------------------------
+    # 6) Fallback → respuesta vacía limpia
+    # -----------------------------
     return LlmResponse(
         content=types.Content(
-           role="model",
-           parts=[types.Part(text="")]
+            role="model",
+            parts=[types.Part(text="")]
         )
     )
-
 
 def extract_clean_text(result):
     """
