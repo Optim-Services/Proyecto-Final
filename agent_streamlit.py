@@ -832,27 +832,6 @@ def calendar_after_model_callback(
         )
         return llm_response
 
-# callback master router
-def masterrouter_after_model_callback(callback_context, llm_response):
-    """
-    Sanitiza el output del MasterRouter para evitar mostrar metadata del modelo.
-    """
-    try:
-        if llm_response and llm_response.content and llm_response.content.parts:
-            clean = llm_response.content.parts[0].text
-
-            # Evitar JSON, metadata y estructuras internas
-            if clean.strip().startswith("{"):
-                return None
-
-            # Dejar solo el texto legible
-            llm_response.content = types.Content(
-                role="model",
-                parts=[types.Part(text=clean.strip())]
-            )
-        return llm_response
-    except:
-        return llm_response
 
 # ============================================
 # 5. STRUCTURED OUTPUT MODELS (Pydantic)
@@ -1717,7 +1696,7 @@ root_agent = LlmAgent(
     
     disallow_transfer_to_peers=False,
     disallow_transfer_to_parent=True,
-    after_model_callback=masterrouter_after_model_callback,
+    after_model_callback=master_after,
     generate_content_config=types.GenerateContentConfig(
         temperature=0.3,
         top_p=0.9,
