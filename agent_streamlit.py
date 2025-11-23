@@ -1819,7 +1819,7 @@ root_agent = LlmAgent(
     ),
     sub_agents=[
         calendar_agent,
-        product_advisor_agent,  
+        product_agent,  
         conversation_agent,
         core_parallel_agent,
         voice_sequential_agent,
