@@ -366,5 +366,3 @@ transcript = transcriber.transcribe(
 3. **"Supabase connection error"**:
    - Verifica la URL y API key de Supabase
    - Confirma que la tabla `calendar_events` exista
-
-
