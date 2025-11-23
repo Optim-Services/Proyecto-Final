@@ -1818,8 +1818,6 @@ root_agent = LlmAgent(
         "IMPORTANTE: Procesa las transcripciones de voz tú mismo y transfiere directamente al agente final. No uses subagentes para voz."
     ),
     sub_agents=[
-        calendar_agent,
-        product_advisor_agent,  
         conversation_agent,
         core_parallel_agent,
         voice_sequential_agent,
