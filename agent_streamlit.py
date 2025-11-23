@@ -387,7 +387,6 @@ def format_datetime(dt_str: Optional[str]) -> str:
 # --- Supabase Client Singleton ---
 _supabase_client: Optional[Client] = None
 
-@st.cache_resource
 def get_supabase_client() -> Client:
     """Obtiene o crea el cliente singleton de Supabase."""
     global _supabase_client
@@ -401,7 +400,6 @@ def get_supabase_client() -> Client:
 _calendar_service: Optional[Any] = None
 _calendar_service_error: Optional[str] = None
 
-@st.cache_resource
 def get_calendar_service():
     """
     Obtiene o crea el cliente singleton de Google Calendar.
@@ -496,16 +494,13 @@ def get_calendar_service():
                                     token_file.write(creds.to_json())
 
                                 st.success("✅ ¡Google Calendar ha sido autenticado exitosamente! Vuelve a ejecutar la acción.")
-                                st.session_state["awaiting_auth"] = True
-                                st.experimental_rerun()
+                                st.stop()
                             except Exception as e:
                                 st.error(f"❌ Error al procesar el código de autorización: {e}")
-                                st.session_state["awaiting_auth"] = True
-                                st.experimental_rerun()
+                                st.stop()
 
                         # Si aún no hay código, detener la app hasta que el usuario lo ingrese
-                        st.session_state["awaiting_auth"] = True
-                        st.experimental_rerun()
+                        st.stop()
 
                     except Exception as e:
                         _calendar_service_error = f"Error en la autenticación de Google Calendar: {e}"
@@ -832,7 +827,6 @@ def calendar_after_model_callback(
         )
         return llm_response
 
-
 # ============================================
 # 5. STRUCTURED OUTPUT MODELS (Pydantic)
 # ============================================
@@ -972,14 +966,6 @@ def gc_delete_event(event_id: str, calendar_id: str = "primary") -> Dict[str, An
         socket.setdefaulttimeout(None)
 
 # --- Supabase: EVENTOS ---
-
-@st.cache_data(ttl=30)
-def cached_list_events():
-    client = get_supabase_client()
-    resp = client.table("calendar_events").select("*").execute()
-    return resp.data or []
-
-
 def sb_upsert_event(event_payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     Inserta/actualiza un evento en calendar_events.
@@ -1052,8 +1038,8 @@ def sb_list_events(filters: Dict[str, Any]) -> Dict[str, Any]:
         print("[sb_list_events] Aplicando filtro client_id:", client_id)
         query = query.eq("client_id", client_id)
 
-    #rows = cached_list_events()
-    rows = query.execute().data or []
+    resp = query.execute()
+    rows = resp.data or []
     print(f"[sb_list_events] Filas devueltas: {len(rows)}")
 
     return {"status": "ok", "detail": rows}
@@ -1213,7 +1199,7 @@ def sync_event_creation(event_data: Dict[str, Any]) -> Dict[str, Any]:
 
     if calendar_status == "supabase_only" and get_calendar_service() is not None:
         sync_existing_supabase_events_to_google()
-               
+
     # Intentar crear en Google Calendar si está disponible
     if service is not None:
         try:
@@ -1300,7 +1286,8 @@ def sync_existing_supabase_events_to_google():
     if service is None:
         return {"error": "Google Calendar no está disponible para sincronización", "status": "failed"}
 
-    rows = cached_list_events()
+    resp = client.table("calendar_events").select("*").execute()
+    rows = resp.data or []
     results = []
     synced_count = 0
 
@@ -1664,7 +1651,44 @@ core_parallel_agent = ParallelAgent(
     ],
 )
 
-# --- Master after ---
+# --- MasterRouter / Orquestador ---
+root_agent = LlmAgent(
+    name="MasterRouter",
+    model="gemini-2.5-flash",
+    description="Enruta inteligentemente las solicitudes del usuario al agente especialista apropiado.",
+    instruction=(
+        "Eres un orquestador con subagentes.\n"
+        "Tienes disponibles estos agentes:\n"
+        "- CalendarAgent: todo lo relacionado con eventos de calendario, agenda, CRM de reuniones.\n"
+        "- ProductAdvisorAgent: análisis de productos/servicios vendidos, inversión por cliente y recomendaciones comerciales.\n"
+        "- ConversationAgent: cualquier otra consulta general.\n"
+        "- CoreParallelAgent: úsalo cuando la pregunta mezcle claramente temas de calendario y de productos.\n\n"
+        "Instrucciones de ruteo:\n"
+        "1. **MANEJO DE TRANSCRIPCIONES DE VOZ**: Si el texto incluye 'TRANSCRIPCIÓN DE NOTA DE VOZ:'\n"
+        "   - Extrae la información: fecha, hora, persona, empresa, si es reunión, etc.\n"
+        "   - Si hay fecha/hora y es sobre agendar → transfiere a 'CalendarAgent' con la instrucción específica.\n"
+        "   - Si hay productos/servicios → transfiere a 'ProductAdvisorAgent'.\n"
+        "   - Si es reunión → menciona que se detectó diarización y transfiere al agente adecuado.\n"
+        "2. Si es sobre eventos, reuniones, agenda (sin ser transcripción) → transfiere a 'CalendarAgent'.\n"
+        "3. Si es sobre productos, ventas, inversión → transfiere a 'ProductAdvisorAgent'.\n"
+        "4. Si mezcla calendario + productos → transfiere a 'CoreParallelAgent'.\n"
+        "5. Cualquier otro caso → transfiere a 'ConversationAgent'.\n\n"
+        "IMPORTANTE: Procesa las transcripciones de voz tú mismo y transfiere directamente al agente final. No uses subagentes para voz."
+    ),
+    sub_agents=[
+        conversation_agent,
+        core_parallel_agent,
+        voice_sequential_agent,
+    ],
+    
+    disallow_transfer_to_peers=False,
+    disallow_transfer_to_parent=True,
+    generate_content_config=types.GenerateContentConfig(
+        temperature=0.3,
+        top_p=0.9,
+    ),
+)
+
 def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
     """
     MasterRouter AFTER callback para:
@@ -1676,7 +1700,7 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
 
     raw = ""
     try:
-        raw = extract_clean_text(llm_response).strip()
+        raw = llm_response.content.parts[0].text.strip()
     except:
         raw = ""
 
@@ -1784,48 +1808,14 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
                 parts=[types.Part(text=f"[TRANSFER_TO: ProductAdvisorAgent]\n{raw}")]
             )
         )
-   
-    return raw
-    #return llm_respons
 
-# --- MasterRouter / Orquestador ---
-root_agent = LlmAgent(
-    name="MasterRouter",
-    model="gemini-2.5-flash",
-    description="Enruta inteligentemente las solicitudes del usuario al agente especialista apropiado.",
-    instruction=(
-        "Eres un orquestador con subagentes.\n"
-        "Tienes disponibles estos agentes:\n"
-        "- CalendarAgent: todo lo relacionado con eventos de calendario, agenda, CRM de reuniones.\n"
-        "- ProductAdvisorAgent: análisis de productos/servicios vendidos, inversión por cliente y recomendaciones comerciales.\n"
-        "- ConversationAgent: cualquier otra consulta general.\n"
-        "- CoreParallelAgent: úsalo cuando la pregunta mezcle claramente temas de calendario y de productos.\n\n"
-        "Instrucciones de ruteo:\n"
-        "1. **MANEJO DE TRANSCRIPCIONES DE VOZ**: Si el texto incluye 'TRANSCRIPCIÓN DE NOTA DE VOZ:'\n"
-        "   - Extrae la información: fecha, hora, persona, empresa, si es reunión, etc.\n"
-        "   - Si hay fecha/hora y es sobre agendar → transfiere a 'CalendarAgent' con la instrucción específica.\n"
-        "   - Si hay productos/servicios → transfiere a 'ProductAdvisorAgent'.\n"
-        "   - Si es reunión → menciona que se detectó diarización y transfiere al agente adecuado.\n"
-        "2. Si es sobre eventos, reuniones, agenda (sin ser transcripción) → transfiere a 'CalendarAgent'.\n"
-        "3. Si es sobre productos, ventas, inversión → transfiere a 'ProductAdvisorAgent'.\n"
-        "4. Si mezcla calendario + productos → transfiere a 'CoreParallelAgent'.\n"
-        "5. Cualquier otro caso → transfiere a 'ConversationAgent'.\n\n"
-        "IMPORTANTE: Procesa las transcripciones de voz tú mismo y transfiere directamente al agente final. No uses subagentes para voz."
-    ),
-    sub_agents=[
-        conversation_agent,
-        core_parallel_agent,
-        voice_sequential_agent,
-    ],
-    
-    disallow_transfer_to_peers=False,
-    disallow_transfer_to_parent=True,
-    after_model_callback=master_after,
-    generate_content_config=types.GenerateContentConfig(
-        temperature=0.3,
-        top_p=0.9,
-    ),
-)
+    return LlmResponse(
+        content=types.Content(
+            role="model",
+            parts=[types.Part(text=f"[TRANSFER_TO: ConversationAgent]\n{raw}")]
+        )
+    )
+
 
 # ============================================
 # 8. RUNNER Y HELPERS PARA EJECUTAR EL AGENTE
@@ -1838,12 +1828,7 @@ SESSION_ID = "default_session"
 session_service = InMemorySessionService()
 # Create session synchronously
 asyncio.run(session_service.create_session(app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID))
-#runner = Runner(agent=root_agent, app_name=APP_NAME, session_service=session_service)
-@st.cache_resource
-def get_runner():
-    return Runner(agent=root_agent, app_name=APP_NAME, session_service=session_service)
-
-runner = get_runner()
+runner = Runner(agent=root_agent, app_name=APP_NAME, session_service=session_service)
 
 def is_suspicious_prompt(text: str) -> bool:
     """Usa el guardián para detectar prompts peligrosos o de extracción de secretos."""
@@ -1895,65 +1880,61 @@ def build_history_prompt(messages: List[Dict[str, str]]) -> str:
         full = last_user.get("content", "")
 
     return full
-#se borra la funcion run_root_agent_with_history_stream
+
+def run_root_agent_with_history_stream(messages: List[Dict[str, str]]):
+    """
+    Ejecuta el root_agent con streaming de respuestas.
+    Retorna un generador que yield los chunks de la respuesta.
+    """
+    query = build_history_prompt(messages)
+    if not query:
+        yield "No recibí ningún mensaje para procesar."
+        return
+
+    content = types.Content(
+        role="user",
+        parts=[types.Part(text=query)]
+    )
+
+    try:
+        events = runner.run(
+            user_id=USER_ID,
+            session_id=SESSION_ID,
+            new_message=content,
+        )
+        
+        for event in events:
+            if event.is_final_response():
+                if event.content and event.content.parts:
+                    for part in event.content.parts:
+                        if getattr(part, "text", None):
+                            # Obtener texto completo
+                            text = part.text
+                            
+                            # Dividir en chunks más grandes para mejor experiencia
+                            # Usar oraciones y frases en lugar de palabras individuales
+                            sentences = text.split('. ')
+                            current_chunk = ""
+                            
+                            for i, sentence in enumerate(sentences):
+                                current_chunk += sentence + ". "
+                                
+                                # Enviar chunks más grandes (cada 2-3 oraciones o ~100 caracteres)
+                                if len(current_chunk) > 100 or i == len(sentences) - 1:
+                                    yield current_chunk.strip()
+                                    current_chunk = ""
+                                    
+                            return
+            
+        # Si no hay respuesta final
+        yield "No recibí una respuesta final del agente."
+        
+    except Exception as e:
+        yield f"⚠️ Ocurrió un error al ejecutar el agente: {e}"
+
 # ============================================
 # 9. UI DE STREAMLIT
 # ============================================
-@st.cache_data
-def save_audio_tempfile(audio_bytes: bytes):
-    with NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
-        tmp_file.write(audio_bytes)
-        return tmp_file.name
-
-def extract_clean_text(result):
-
-    # 1) final_response
-    if hasattr(result, "final_response"):
-        try:
-            txt = result.final_response()
-            if isinstance(txt, str):
-                return txt.strip()
-        except:
-            pass
-
-    # 2) LlmResponse → candidates
-    try:
-        if hasattr(result, "candidates") and result.candidates:
-            cand = result.candidates[0]
-            if hasattr(cand, "content") and cand.content:
-                parts = cand.content.parts
-                txt = "".join(
-                    p.text for p in parts 
-                    if hasattr(p, "text")
-                ).strip()
-                if txt:
-                    return txt
-    except:
-        pass
-
-    # 3) dict-style response
-    if isinstance(result, dict):
-        if "output_text" in result:
-            return str(result["output_text"]).strip()
-        if "candidates" in result:
-            cand = result["candidates"][0]
-            if "content" in cand and "parts" in cand["content"]:
-                parts = cand["content"]["parts"]
-                txt = "".join(
-                    p.get("text", "") for p in parts
-                ).strip()
-                if txt:
-                    return txt
-
-    # 4) output_text directo (Google ADK nuevas versiones)
-    if hasattr(result, "output_text"):
-        try:
-            return result.output_text.strip()
-        except:
-            pass
-
-    # 5) Fallback limpio (NO poner str(result))
-    return ""
 
 def main():
     st.set_page_config(
@@ -2083,7 +2064,9 @@ def main():
         else:
             tmp_path = None
             try:
-                tmp_path = save_audio_tempfile(audio_bytes_from_recorder)
+                with NamedTemporaryFile(delete=False, suffix=".wav") as tmp_file:
+                    tmp_file.write(audio_bytes_from_recorder)
+                    tmp_path = tmp_file.name
 
                 with st.spinner("🎙️ Transcribiendo audio con AssemblyAI…"):
                     aa.settings.api_key = ASSEMBLYAI_API_KEY
@@ -2153,42 +2136,29 @@ def main():
                 {"role": "user", "content": user_display_content or user_prompt}
             )
 
-            # 2) Ejecutar el agente sin streaming visible
+            # 2) Ejecutar agente con spinner y streaming
             with st.chat_message("assistant"):
+                # Mostrar spinner mientras procesa
                 with st.spinner("Analizando solicitud..."):
+                    # Iniciar el streaming
                     message_placeholder = st.empty()
                     full_response = ""
-            
+                    
                     try:
-                        content = types.Content(
-                             role="user",
-                             parts=[types.Part(text=user_prompt)]
-                        )
-                     
-                        result = runner.run(
-                             user_id=USER_ID,
-                             session_id=SESSION_ID,
-                             new_message=content
-                        )
-                     
-                        # Si result es un generador, convertirlo a lista y tomar el final
-                        if hasattr(result, "__iter__") and not hasattr(result, "final_response"):
-                            result = list(result)[-1]
-                     
-                        # === EXTRACCIÓN DE TEXTO CORREGIDA ===
-                        final_text = extract_clean_text(result)
-                     
-                        if not final_text:
-                            final_text = "No pude generar una respuesta."
-                     
-                        message_placeholder.markdown(final_text)
-                        full_response = final_text
-                     
+                        # Streaming de la respuesta
+                        for chunk in run_root_agent_with_history_stream(st.session_state["messages"]):
+                            full_response += chunk + " "
+                            # Mostrar con cursor animado y mejor formato
+                            message_placeholder.markdown(full_response + "▌")
+                        
+                        # Reemplazar placeholder con respuesta final sin cursor
+                        message_placeholder.markdown(full_response)
+                        
                     except Exception as e:
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
                         message_placeholder.markdown(error_msg)
                         full_response = error_msg
-                        
+
             # 3) Guardar respuesta completa en historial
             st.session_state["messages"].append(
                 {"role": "assistant", "content": full_response.strip()}
