@@ -1966,22 +1966,13 @@ def normalize_adk_response(result):
         except:
             pass
 
-    # 5. fallback → convertir a string PLANO (pero sin metadata)
-    try:
-        return LlmResponse(
-            content=types.Content(
-                role="model",
-                parts=[types.Part(text=str(result))]
-            )
+    # 5. fallback → devolver respuesta VACÍA en vez de imprimir metadata
+    return LlmResponse(
+        content=types.Content(
+           role="model",
+           parts=[types.Part(text="")]
         )
-    except:
-        return LlmResponse(
-            content=types.Content(
-                role="model",
-                parts=[types.Part(text="")]
-            )
-        )
-
+    )
 
 def extract_clean_text(result):
 
