@@ -501,7 +501,7 @@ def get_calendar_service():
                             except Exception as e:
                                 st.error(f"❌ Error al procesar el código de autorización: {e}")
                                 st.session_state["awaiting_auth"] = True
-                                 st.experimental_rerun()
+                                st.experimental_rerun()
 
                         # Si aún no hay código, detener la app hasta que el usuario lo ingrese
                         st.session_state["awaiting_auth"] = True
@@ -1051,7 +1051,8 @@ def sb_list_events(filters: Dict[str, Any]) -> Dict[str, Any]:
         print("[sb_list_events] Aplicando filtro client_id:", client_id)
         query = query.eq("client_id", client_id)
 
-    rows = cached_list_events()
+    #rows = cached_list_events()
+    rows = query.execute().data or []
     print(f"[sb_list_events] Filas devueltas: {len(rows)}")
 
     return {"status": "ok", "detail": rows}
@@ -1211,7 +1212,7 @@ def sync_event_creation(event_data: Dict[str, Any]) -> Dict[str, Any]:
 
     if calendar_status == "supabase_only" and get_calendar_service() is not None:
         sync_existing_supabase_events_to_google()
-
+               
     # Intentar crear en Google Calendar si está disponible
     if service is not None:
         try:
@@ -1896,58 +1897,7 @@ def build_history_prompt(messages: List[Dict[str, str]]) -> str:
         full = last_user.get("content", "")
 
     return full
-
-def run_root_agent_with_history_stream(messages: List[Dict[str, str]]):
-    """
-    Ejecuta el root_agent con streaming de respuestas.
-    Retorna un generador que yield los chunks de la respuesta.
-    """
-    query = build_history_prompt(messages)
-    if not query:
-        yield "No recibí ningún mensaje para procesar."
-        return
-
-    content = types.Content(
-        role="user",
-        parts=[types.Part(text=query)]
-    )
-
-    try:
-        events = runner.run(
-            user_id=USER_ID,
-            session_id=SESSION_ID,
-            new_message=content,
-        )
-        
-        for event in events:
-            if event.is_final_response():
-                if event.content and event.content.parts:
-                    for part in event.content.parts:
-                        if getattr(part, "text", None):
-                            # Obtener texto completo
-                            text = part.text
-                            
-                            # Dividir en chunks más grandes para mejor experiencia
-                            # Usar oraciones y frases en lugar de palabras individuales
-                            sentences = text.split('. ')
-                            current_chunk = ""
-                            
-                            for i, sentence in enumerate(sentences):
-                                current_chunk += sentence + ". "
-                                
-                                # Enviar chunks más grandes (cada 2-3 oraciones o ~100 caracteres)
-                                if len(current_chunk) > 100 or i == len(sentences) - 1:
-                                    yield current_chunk.strip()
-                                    current_chunk = ""
-                                    
-                            return
-            
-        # Si no hay respuesta final
-        yield "No recibí una respuesta final del agente."
-        
-    except Exception as e:
-        yield f"⚠️ Ocurrió un error al ejecutar el agente: {e}"
-
+#se borra la funcion run_root_agent_with_history_stream
 # ============================================
 # 9. UI DE STREAMLIT
 # ============================================
@@ -2164,22 +2114,28 @@ def main():
                     full_response = ""
                     
                     try:
+                        # Construir el contenido correctamente
+                        content = types.Content(
+                             role="user",
+                             parts=[types.Part(text=user_prompt)]
+                         )
+                     
                         # Ejecución directa sin streaming
-                         response = runner.run(
+                        response = runner.run(
                              user_id=USER_ID,
                              session_id=SESSION_ID,
                              new_message=content
                          )
                      
-                         final_text = response.final_response() or "No pude generar una respuesta."
-                         message_placeholder.markdown(final_text)
-                         full_response = final_text
-                        
-                    except Exception as e:
+                        final_text = response.final_response() or "No pude generar una respuesta."
+                        message_placeholder.markdown(final_text)
+                        full_response = final_text
+                     
+                     except Exception as e:
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
                         message_placeholder.markdown(error_msg)
                         full_response = error_msg
-
+                        
             # 3) Guardar respuesta completa en historial
             st.session_state["messages"].append(
                 {"role": "assistant", "content": full_response.strip()}
