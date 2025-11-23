@@ -127,6 +127,8 @@ Usa SIEMPRE `sync_event_creation` para:
 - Obtener el `event_id` real,
 - Guardarlo en Supabase,
 - Devolver un resumen al usuario.
+- Cuando proporciones fechas, usa SIEMPRE timezone: "America/Mexico_City".
+- Cuando generes start_iso y end_iso, usa el formato: YYYY-MM-DDTHH:MM:SS-06:00.
 
 ### 6) Notas de voz:
 Si el usuario menciona audio:
@@ -1194,6 +1196,9 @@ def sync_event_creation(event_data: Dict[str, Any]) -> Dict[str, Any]:
     gc_event_id = None
     created_gc = None
     calendar_status = "supabase_only"
+
+    if calendar_status == "supabase_only" and get_calendar_service() is not None:
+        sync_existing_supabase_events_to_google()
 
     # Intentar crear en Google Calendar si está disponible
     if service is not None:
