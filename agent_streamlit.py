@@ -2082,7 +2082,7 @@ def extract_clean_text(result):
 def main():
     st.set_page_config(
         page_title="OptimAI",
-        page_icon="",
+        page_icon="🤖",  # Usé un ícono más común por si el original falla
         layout="wide",
         initial_sidebar_state="expanded"
     )
@@ -2247,7 +2247,7 @@ def main():
     # -------------------------
     # Ejecución del agente con streaming
     # -------------------------
-   if user_prompt:
+    if user_prompt:
         # Validación de seguridad
         if is_suspicious_prompt(user_prompt):
             warning = (
@@ -2304,14 +2304,14 @@ def main():
                         final_text = extract_clean_text(result)
                     
                         if not final_text:
-                            # CORRECCIÓN 1: No se usa 'e' aquí, se evita el error 'referenced before assignment'
+                            # CORRECCIÓN: Se evita referenciar 'e' aquí, eliminando el error de asignación previa.
                             final_text = "❌ No pude generar una respuesta. El agente no retornó texto."
                     
                         message_placeholder.markdown(final_text)
                         full_response = final_text
                     
                     except Exception as e:
-                        # CORRECCIÓN 2: Este bloque usa 'e' correctamente y muestra el error real
+                        # CORRECCIÓN: Este bloque se ejecuta cuando hay una excepción real (API, conexión, etc.)
                         error_msg = f"⚠️ Error al generar respuesta (EXCEPCIÓN): {e}"
                         message_placeholder.markdown(error_msg)
                         full_response = error_msg
@@ -2326,6 +2326,7 @@ def main():
             
             # Forzar rerun para actualizar la UI
             st.rerun()
+
 
 _sessions_to_close = []
 
