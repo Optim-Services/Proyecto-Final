@@ -1839,12 +1839,6 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
    
     return llm_response
    
-    return LlmResponse(
-        content=types.Content(
-            role="model",
-            parts=[types.Part(text=f"[TRANSFER_TO: ConversationAgent]\n{raw}")]
-        )
-    )
 
 
 # ============================================
