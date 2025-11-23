@@ -1907,40 +1907,68 @@ def save_audio_tempfile(audio_bytes: bytes):
 
 def extract_clean_text(result):
     """
-    Extrae únicamente texto útil para el usuario desde un LlmResponse del ADK.
-    Elimina completamente:
-    - metadata
-    - model_version
-    - actions
-    - grounding_metadata
-    - token usage
-    - candidates crudos
-    - pensamientos ("thoughts")
-    - estructuras Content()
+    Extrae texto limpio desde cualquier tipo de respuesta generada por ADK / Gemini.
+    Compatible con:
+    - LlmResponse
+    - GenerateContentResponse
+    - dict style (root agent)
+    - objetos con output_text
+    - objetos con candidates
     """
 
-    # Caso 1: tiene respuesta final
+    # 1) ADK LlmResponse clásico con final_response()
     if hasattr(result, "final_response"):
         try:
-            return result.final_response().strip()
+            txt = result.final_response()
+            if isinstance(txt, str) and txt.strip():
+                return txt.strip()
         except:
             pass
 
-    # Caso 2: result.candidates es válido
+    # 2) Gemini GenerateContentResponse (candidates)
     try:
         if hasattr(result, "candidates") and result.candidates:
-            candidate = result.candidates[0]
-            if hasattr(candidate, "content") and candidate.content:
-                parts = candidate.content.parts
+            cand = result.candidates[0]
+            if hasattr(cand, "content") and cand.content:
+                parts = cand.content.parts
                 text = "".join(
                     p.text for p in parts
                     if hasattr(p, "text") and isinstance(p.text, str)
                 ).strip()
-                return text
+                if text:
+                    return text
     except:
         pass
 
-    # Caso 3: fallback seguro si no hay texto útil
+    # 3) Estructura dict-style ADK
+    try:
+        if isinstance(result, dict):
+            if "output_text" in result:
+                return str(result["output_text"]).strip()
+
+            if "candidates" in result:
+                cand = result["candidates"][0]
+                if "content" in cand and "parts" in cand["content"]:
+                    parts = cand["content"]["parts"]
+                    txt = "".join(
+                        p.get("text", "")
+                        for p in parts
+                        if isinstance(p, dict)
+                    ).strip()
+                    if txt:
+                        return txt
+    except:
+        pass
+
+    # 4) output_text directo (ADK nuevas versiones)
+    if hasattr(result, "output_text"):
+        try:
+            if result.output_text.strip():
+                return result.output_text.strip()
+        except:
+            pass
+
+    # 5) fallback ultra seguro
     return ""
 
 def main():
