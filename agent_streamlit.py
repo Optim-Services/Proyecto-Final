@@ -2245,7 +2245,13 @@ def main():
                         # 4) Mostrar la respuesta
                         message_placeholder.markdown(final_text)
                         full_response = final_text
-                        
+
+                    except Exception as e:
+                        # CORRECCIÓN: Este bloque se ejecuta cuando hay una excepción real (API, conexión, etc.)
+                        error_msg = f"⚠️ Error al generar respuesta (EXCEPCIÓN): {e}"
+                        message_placeholder.markdown(error_msg)
+                        full_response = error_msg
+                       
             # 3) Guardar respuesta completa en historial
             st.session_state["messages"].append(
                 {"role": "assistant", "content": full_response.strip()}
