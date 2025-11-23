@@ -1940,20 +1940,8 @@ def extract_clean_text(result):
     except:
         pass
 
-    # Caso 3: fallback general
-    try:
-        if hasattr(result, "text"):
-            return result.text.strip()
-    except:
-        pass
-
-    # Caso 4: string crudo
-    try:
-        return str(result)
-    except:
-        return "No pude generar una respuesta."
-
-
+    # Caso 3: fallback seguro si no hay texto útil
+    return ""
 
 def main():
     st.set_page_config(
