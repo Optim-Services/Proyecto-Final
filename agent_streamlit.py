@@ -2304,14 +2304,14 @@ def main():
                         final_text = extract_clean_text(result)
                      
                         if not final_text:
-                            # CORRECCIÓN 1: No se usa 'e' aquí. Solo un mensaje de fallo de agente.
+                            # Ya no se usa 'e' aquí, se evita el error 'referenced before assignment'
                             final_text = "❌ No pude generar una respuesta. El agente no retornó texto."
                      
                         message_placeholder.markdown(final_text)
                         full_response = final_text
                      
                     except Exception as e:
-                        # CORRECCIÓN 2: Este bloque es el único que usa 'e' (el error real del sistema)
+                        # Este bloque usa 'e' correctamente
                         error_msg = f"⚠️ Error al generar respuesta (EXCEPCIÓN): {e}"
                         message_placeholder.markdown(error_msg)
                         full_response = error_msg
