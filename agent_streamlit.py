@@ -1785,7 +1785,12 @@ def master_after(callback_context: CallbackContext, llm_response: LlmResponse):
             )
         )
    
-    return raw
+    return LlmResponse(
+    content=types.Content(
+        role="model",
+        parts=[types.Part(text=raw)]
+             )
+         )
     #return llm_respons
 
 # --- MasterRouter / Orquestador ---
