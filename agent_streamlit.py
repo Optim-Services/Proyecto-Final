@@ -2137,7 +2137,7 @@ def main():
                         error_msg = f"⚠️ Error al generar respuesta: {e}"
                         message_placeholder.markdown(error_msg)
                         full_response = error_msg
-                        a
+                        
             # 3) Guardar respuesta completa en historial
             st.session_state["messages"].append(
                 {"role": "assistant", "content": full_response.strip()}
